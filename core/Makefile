@@ -1616,7 +1616,7 @@ endif
 ifeq ($(WITH_GMS),true)
     $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
 else
-ifneq ($(PA_BUILD),)
+ifneq ($(CUSTOM_BUILD),)
     $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := true
 else
     $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
@@ -1639,7 +1639,7 @@ $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
 	@echo -e ${CL_YLW}"Package OTA:"${CL_RST}" $@"
 	$(hide) MKBOOTIMG=$(MKBOOTIMG) \
 	   $(OTA_FROM_TARGET_SCRIPT) -v \
-	   $(if $(PA_BUILD),, --block) \
+	   $(if $(CUSTOM_BUILD),, --block) \
 	   -p $(HOST_OUT) \
 	   -k $(KEY_CERT_PAIR) \
 	   --backup=$(backuptool) \
@@ -1647,7 +1647,7 @@ $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
 	   $(if $(OEM_OTA_CONFIG), -o $(OEM_OTA_CONFIG)) \
 	   $(BUILT_TARGET_FILES_PACKAGE) $@
 
-PA_TARGET_PACKAGE := $(PRODUCT_OUT)/$(TARGET_PRODUCT)-$(ROM_VERSION).zip
+HAZY_TARGET_PACKAGE := $(PRODUCT_OUT)/$(TARGET_PRODUCT)-$(ROM_VERSION).zip
 
 .PHONY: otapackage bacon
 otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
@@ -1655,15 +1655,15 @@ bacon: otapackage
 ifneq ($(TARGET_CUSTOM_RELEASETOOL),)
 	$(error TARGET_CUSTOM_RELEASETOOL is deprecated)
 endif
-	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(PA_TARGET_PACKAGE)
-	$(hide) $(MD5SUM) $(PA_TARGET_PACKAGE) > $(PA_TARGET_PACKAGE).md5sum
-ifeq ($(USE_PREBUILT_CHROMIUM),1)
-ifneq ($(PRODUCT_PREBUILT_WEBVIEWCHROMIUM),yes)
-	@echo "Running Chromium prebuilt setup script..."
-	$(hide) . $(TOPDIR)vendor/pa/utils/chromium_prebuilt.sh $(TOP)
-endif
-endif
-	@echo -e ${CL_CYN}"Package Complete: $(PA_TARGET_PACKAGE)"${CL_RST}
+	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(HAZY_TARGET_PACKAGE)
+	$(hide) $(MD5SUM) $(HAZY_TARGET_PACKAGE) > $(HAZY_TARGET_PACKAGE).md5sum
+#ifeq ($(USE_PREBUILT_CHROMIUM),1)
+#ifneq ($(PRODUCT_PREBUILT_WEBVIEWCHROMIUM),yes)
+#	@echo "Running Chromium prebuilt setup script..."
+#	$(hide) . $(TOPDIR)vendor/pa/utils/chromium_prebuilt.sh $(TOP)
+#endif
+#endif
+	@echo -e ${CL_CYN}"Package Complete: $(HAZY_TARGET_PACKAGE)"${CL_RST}
 
 endif    # recovery_fstab is defined
 endif    # TARGET_NO_KERNEL != true
