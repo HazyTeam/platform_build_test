@@ -294,6 +294,31 @@ function check_bash_version()
     return 0
 }
 
+function addcompletions()
+{
+    local T dir f
+
+    # Keep us from trying to run in something that isn't bash.
+    if [ -z "${BASH_VERSION}" ]; then
+        return 1
+    fi
+
+    # Keep us from trying to run in bash that's too old.
+    if [ ${BASH_VERSINFO[0]} -lt 4 ]; then
+        return 2
+    fi
+	
+	return 0
+
+    dir="sdk/bash_completion"
+    if [ -d ${dir} ]; then
+        for f in `/bin/ls ${dir}/[a-z]*.bash 2> /dev/null`; do
+            echo "including $f"
+            . $f
+        done
+    fi
+}
+
 function choosetype()
 {
     echo "Build type choices are:"
@@ -1726,17 +1751,19 @@ do
 done
 unset f
 
-# Add completions
-check_bash_version && {
-    dirs="sdk/bash_completion vendor/hazy/bash_completion"
-    for dir in $dirs; do
-    if [ -d ${dir} ]; then
-        for f in `/bin/ls ${dir}/[a-z]*.bash 2> /dev/null`; do
-            echo "including $f"
-            . $f
-        done
-    fi
-    done
-}
+addcompletions
 
-export ANDROID_BUILD_TOP=$(gettop)
+# Add completions
+#check_bash_version && {
+#    dirs="sdk/bash_completion vendor/hazy/bash_completion"
+#    for dir in $dirs; do
+#    if [ -d ${dir} ]; then
+#        for f in `/bin/ls ${dir}/[a-z]*.bash 2> /dev/null`; do
+#            echo "including $f"
+#            . $f
+#        done
+#    fi
+#    done
+#}
+#
+#export ANDROID_BUILD_TOP=$(gettop)
