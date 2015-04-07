@@ -57,6 +57,6 @@ if [ "$TARGET_UNIFIED_DEVICE" == "" ] ; then
 fi
 echo "ro.build.characteristics=$TARGET_AAPT_CHARACTERISTICS"
 
-echo "ro.hazy.device=$HAZY_DEVICE"
+echo "ro.hazy.device=$CUSTOM_DEVICE"
 
 echo "# end build properties"
