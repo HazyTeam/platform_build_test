@@ -106,6 +106,7 @@ $(full_target): PRIVATE_STAGING_DIR := $(call append-path,$(staging),$(addon_dir
 
 $(full_target): $(sdk_addon_deps) | $(ACP)
 	@echo -e ${CL_GRN}"Packaging SDK Addon:"${CL_RST}" $@"
+
 	$(hide) mkdir -p $(PRIVATE_STAGING_DIR)/docs
 	$(hide) for d in $(PRIVATE_DOCS_DIRS); do \
 	    $(ACP) -r $$d $(PRIVATE_STAGING_DIR)/docs ;\

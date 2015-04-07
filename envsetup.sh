@@ -4,21 +4,21 @@ Invoke ". build/envsetup.sh" from your shell to add the following functions to y
 - lunch:   lunch <product_name>-<build_variant>
 - tapas:   tapas [<App1> <App2> ...] [arm|x86|mips|armv5|arm64|x86_64|mips64] [eng|userdebug|user]
 - croot:   Changes directory to the top of the tree.
-- cout:    Changes directory to out.
 - m:       Makes from the top of the tree.
 - mm:      Builds all of the modules in the current directory, but not their dependencies.
 - mmm:     Builds all of the modules in the supplied directories, but not their dependencies.
            To limit the modules being built use the syntax: mmm dir/:target1,target2.
 - mma:     Builds all of the modules in the current directory, and their dependencies.
+- mmp:     Builds all of the modules in the current directory and pushes them to the device.
+- mmmp:    Builds all of the modules in the supplied directories and pushes them to the device.
 - mmma:    Builds all of the modules in the supplied directories, and their dependencies.
 - cgrep:   Greps on all local C/C++ files.
 - ggrep:   Greps on all local Gradle files.
 - jgrep:   Greps on all local Java files.
 - resgrep: Greps on all local res/*.xml files.
 - sgrep:   Greps on all local source files.
-- repopick: Utility to fetch changes from Gerrit.
 - godir:   Go to the directory containing a file.
-- reposync: Parallel repo sync using ionice and SCHED_BATCH
+- pushboot:Push a file from your OUT dir to your phone and reboots it, using absolute path.
 
 Look at the source to view more functions. The complete list is:
 EOF
@@ -66,7 +66,6 @@ function check_product()
 
     if (echo -n $1 | grep -q -e "^hazy_") ; then
        CUSTOM_BUILD=$(echo -n $1 | sed -e 's/^hazy_//g')
-       export BUILD_NUMBER=$((date +%s%N ; echo $CUSTOM_BUILD; hostname) | openssl sha1 | sed -e 's/.*=//g; s/ //g' | cut -c1-10)
     else
        CUSTOM_BUILD=
     fi
@@ -256,26 +255,11 @@ function settitle()
         local product=$TARGET_PRODUCT
         local variant=$TARGET_BUILD_VARIANT
         local apps=$TARGET_BUILD_APPS
-        if [ -z "$PROMPT_COMMAND"  ]; then
-            # No prompts
-            PROMPT_COMMAND="echo -ne \"\033]0;${USER}@${HOSTNAME}: ${PWD}\007\""
-        elif [ -z "$(echo $PROMPT_COMMAND | grep '033]0;')" ]; then
-            # Prompts exist, but no hardstatus
-            PROMPT_COMMAND="echo -ne \"\033]0;${USER}@${HOSTNAME}: ${PWD}\007\";${PROMPT_COMMAND}"
-        fi
-        if [ ! -z "$ANDROID_PROMPT_PREFIX" ]; then
-            PROMPT_COMMAND=$(echo $PROMPT_COMMAND | sed -e 's/$ANDROID_PROMPT_PREFIX //g')
-        fi
-
         if [ -z "$apps" ]; then
-            ANDROID_PROMPT_PREFIX="[${arch}-${product}-${variant}]"
+            export PROMPT_COMMAND="echo -ne \"\033]0;[${arch}-${product}-${variant}] ${USER}@${HOSTNAME}: ${PWD}\007\""
         else
-            ANDROID_PROMPT_PREFIX="[$arch $apps $variant]"
+            export PROMPT_COMMAND="echo -ne \"\033]0;[$arch $apps $variant] ${USER}@${HOSTNAME}: ${PWD}\007\""
         fi
-        export ANDROID_PROMPT_PREFIX
-
-        # Inject build data into hardstatus
-        export PROMPT_COMMAND="$(echo $PROMPT_COMMAND | sed -e 's/\\033]0;\(.*\)\\007/\\033]0;$ANDROID_PROMPT_PREFIX \1\\007/g')"
     fi
 }
 
@@ -292,31 +276,6 @@ function check_bash_version()
     fi
 
     return 0
-}
-
-function addcompletions()
-{
-    local T dir f
-
-    # Keep us from trying to run in something that isn't bash.
-    if [ -z "${BASH_VERSION}" ]; then
-        return 1
-    fi
-
-    # Keep us from trying to run in bash that's too old.
-    if [ ${BASH_VERSINFO[0]} -lt 4 ]; then
-        return 2
-    fi
-	
-	return 0
-
-    dir="sdk/bash_completion"
-    if [ -d ${dir} ]; then
-        for f in `/bin/ls ${dir}/[a-z]*.bash 2> /dev/null`; do
-            echo "including $f"
-            . $f
-        done
-    fi
 }
 
 function choosetype()
@@ -494,6 +453,14 @@ function add_lunch_combo()
     LUNCH_MENU_CHOICES=(${LUNCH_MENU_CHOICES[@]} $new_combo)
 }
 
+# add the default one here
+add_lunch_combo aosp_arm-eng
+add_lunch_combo aosp_arm64-eng
+add_lunch_combo aosp_mips-eng
+add_lunch_combo aosp_mips64-eng
+add_lunch_combo aosp_x86-eng
+add_lunch_combo aosp_x86_64-eng
+
 function print_lunch_menu()
 {
     local uname=$(uname)
@@ -528,7 +495,6 @@ function brunch()
 function breakfast()
 {
     target=$1
-    local variant=$2
     CUSTOM_DEVICES_ONLY="true"
     unset LUNCH_MENU_CHOICES
     add_lunch_combo full-eng
@@ -548,11 +514,8 @@ function breakfast()
             # A buildtype was specified, assume a full device name
             lunch $target
         else
-            # This is probably just the hazy model name
-            if [ -z "$variant" ]; then
-                variant="userdebug"
-            fi
-            lunch hazy_$target-$variant
+            # This is probably just the Hazy model name
+            lunch hazy_$target-userdebug
         fi
     fi
     return $?
@@ -601,16 +564,18 @@ function lunch()
     check_product $product
     if [ $? -ne 0 ]
     then
-        # if we can't find a product, try to grab it off the CM github
+        # if we can't find the product, try to grab it from our github
         T=$(gettop)
         pushd $T > /dev/null
         build/tools/roomservice.py $product
         popd > /dev/null
         check_product $product
     else
+        T=$(gettop)
+        pushd $T > /dev/null
         build/tools/roomservice.py $product true
+        popd > /dev/null
     fi
-
     if [ $? -ne 0 ]
     then
         echo
@@ -641,18 +606,10 @@ function lunch()
 
     echo
 
-    if [[ $USE_PREBUILT_CHROMIUM -eq 1 ]]; then
-        chromium_prebuilt
-    else
-        # Unset flag in case user opts out later on
-        export PRODUCT_PREBUILT_WEBVIEWCHROMIUM=""
-    fi
-
     fixup_common_out_dir
 
     set_stuff_for_environment
     printconfig
-
 }
 
 # Tab completion for lunch.
@@ -674,7 +631,8 @@ function tapas()
 {
     local arch="$(echo $* | xargs -n 1 echo | \grep -E '^(arm|x86|mips|armv5|arm64|x86_64|mips64)$' | xargs)"
     local variant="$(echo $* | xargs -n 1 echo | \grep -E '^(user|userdebug|eng)$' | xargs)"
-    local apps="$(echo $* | xargs -n 1 echo | \grep -E -v '^(user|userdebug|eng|arm|x86|mips|armv5|arm64|x86_64|mips64)$' | xargs)"
+    local density="$(echo $* | xargs -n 1 echo | \grep -E '^(ldpi|mdpi|tvdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|alldpi)$' | xargs)"
+    local apps="$(echo $* | xargs -n 1 echo | \grep -E -v '^(user|userdebug|eng|arm|x86|mips|armv5|arm64|x86_64|mips64|ldpi|mdpi|tvdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|alldpi)$' | xargs)"
 
     if [ $(echo $arch | wc -w) -gt 1 ]; then
         echo "tapas: Error: Multiple build archs supplied: $arch"
@@ -682,6 +640,10 @@ function tapas()
     fi
     if [ $(echo $variant | wc -w) -gt 1 ]; then
         echo "tapas: Error: Multiple build variants supplied: $variant"
+        return
+    fi
+    if [ $(echo $density | wc -w) -gt 1 ]; then
+        echo "tapas: Error: Multiple densities supplied: $density"
         return
     fi
 
@@ -700,9 +662,13 @@ function tapas()
     if [ -z "$apps" ]; then
         apps=all
     fi
+    if [ -z "$density" ]; then
+        density=alldpi
+    fi
 
     export TARGET_PRODUCT=$product
     export TARGET_BUILD_VARIANT=$variant
+    export TARGET_BUILD_DENSITY=$density
     export TARGET_BUILD_TYPE=release
     export TARGET_BUILD_APPS=$apps
 
@@ -710,57 +676,73 @@ function tapas()
     printconfig
 }
 
-function eat()
-{
-    if [ "$OUT" ] ; then
-        MODVERSION=`sed -n -e'/ro\.pa\.version/s/.*=//p' $OUT/system/build.prop`
-        ZIPFILE=pa-$MODVERSION.zip
-        ZIPPATH=$OUT/$ZIPFILE
-        if [ ! -f $ZIPPATH ] ; then
-            echo "Nothing to eat"
-            return 1
-        fi
-        adb start-server # Prevent unexpected starting server message from adb get-state in the next line
-        if [ $(adb get-state) != device -a $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) != 0 ] ; then
-            echo "No device is online. Waiting for one..."
-            echo "Please connect USB and/or enable USB debugging"
-            until [ $(adb get-state) = device -o $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) = 0 ];do
-                sleep 1
-            done
-            echo "Device Found.."
-        fi
-        # if adbd isn't root we can't write to /cache/recovery/
-        adb root
-        sleep 1
-        adb wait-for-device
-        SZ=`stat -c %s $ZIPPATH`
-        CACHESIZE=`adb shell busybox df -PB1 /cache | grep /cache | tr -s ' ' | cut -d ' ' -f 4`
-        if [ $CACHESIZE -gt $SZ ];
-        then
-            PUSHDIR=/cache/
-            DIR=cache
-        else
-            PUSHDIR=/storage/sdcard0/
-             # Optional path for sdcard0 in recovery
-             [ -z "$1" ] && DIR=sdcard/0 || DIR=$1
-        fi
-        echo "Pushing $ZIPFILE to $PUSHDIR"
-        if adb push $ZIPPATH $PUSHDIR ; then
-            cat << EOF > /tmp/command
---update_package=/$DIR/$ZIPFILE
-EOF
-            if adb push /tmp/command /cache/recovery/ ; then
-                echo "Rebooting into recovery for installation"
-                adb reboot recovery
-            fi
-            rm /tmp/command
-        fi
-    else
-        echo "Nothing to eat"
+function pushboot() {
+    if [ ! -f $OUT/$* ]; then
+        echo "File not found: $OUT/$*"
         return 1
     fi
-    return $?
+
+    adb root
+    sleep 1
+    adb wait-for-device
+    adb remount
+
+    adb push $OUT/$* /$*
+    adb reboot
 }
+
+# Credit for color strip sed: http://goo.gl/BoIcm
+function mmmp()
+{
+    if [[ $# < 1 || $1 == "--help" || $1 == "-h" ]]; then
+        echo "mmmp [make arguments] <path-to-project>"
+        return 1
+    fi
+
+    # Get product name from cm_<product>
+    PRODUCT=`echo $TARGET_PRODUCT | tr "_" "\n" | tail -n 1`
+
+    adb start-server # Prevent unexpected starting server message from adb get-state in the next line
+    if [ $(adb get-state) != device -a $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) != 0 ] ; then
+        echo "No device is online. Waiting for one..."
+        echo "Please connect USB and/or enable USB debugging"
+        until [ $(adb get-state) = device -o $(adb shell busybox test -e /sbin/recovery 2> /dev/null; echo $?) = 0 ];do
+            sleep 1
+        done
+        echo "Device Found.."
+    fi
+
+    adb root &> /dev/null
+    sleep 0.3
+    adb wait-for-device &> /dev/null
+    sleep 0.3
+    adb remount &> /dev/null
+
+    mmm $* | tee .log
+
+    # Install: <file>
+    LOC=$(cat .log | sed -r 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g' | grep 'Install' | cut -d ':' -f 2)
+
+    # Copy: <file>
+    LOC=$LOC $(cat .log | sed -r 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g' | grep 'Copy' | cut -d ':' -f 2)
+
+    for FILE in $LOC; do
+        # Get target file name (i.e. system/bin/adb)
+        TARGET=$(echo $FILE | sed "s/\/$PRODUCT\//\n/" | tail -n 1)
+
+        # Don't send files that are not in /system.
+        if ! echo $TARGET | egrep '^system\/' > /dev/null ; then
+            continue
+        else
+            echo "Pushing: $TARGET"
+            adb push $FILE $TARGET
+        fi
+    done
+    rm -f .log
+    return 0
+}
+
+alias mmp='mmmp .'
 
 function gettop
 {
@@ -977,15 +959,6 @@ function croot()
     fi
 }
 
-function cout()
-{
-    if [  "$OUT" ]; then
-        cd $OUT
-    else
-        echo "Couldn't locate out directory.  Try setting OUT."
-    fi
-}
-
 function cproj()
 {
     TOPFILE=build/core/envsetup.mk
@@ -1047,6 +1020,85 @@ function pid()
         echo "usage: pid [--exact] <process name>"
 		return 255
     fi
+}
+
+# coredump_setup - enable core dumps globally for any process
+#                  that has the core-file-size limit set correctly
+#
+# NOTE: You must call also coredump_enable for a specific process
+#       if its core-file-size limit is not set already.
+# NOTE: Core dumps are written to ramdisk; they will not survive a reboot!
+
+function coredump_setup()
+{
+	echo "Getting root...";
+	adb root;
+	adb wait-for-device;
+
+	echo "Remounting root parition read-write...";
+	adb shell mount -w -o remount -t rootfs rootfs;
+	sleep 1;
+	adb wait-for-device;
+	adb shell mkdir -p /cores;
+	adb shell mount -t tmpfs tmpfs /cores;
+	adb shell chmod 0777 /cores;
+
+	echo "Granting SELinux permission to dump in /cores...";
+	adb shell restorecon -R /cores;
+
+	echo "Set core pattern.";
+	adb shell 'echo /cores/core.%p > /proc/sys/kernel/core_pattern';
+
+	echo "Done."
+}
+
+# coredump_enable - enable core dumps for the specified process
+# $1 = PID of process (e.g., $(pid mediaserver))
+#
+# NOTE: coredump_setup must have been called as well for a core
+#       dump to actually be generated.
+
+function coredump_enable()
+{
+	local PID=$1;
+	if [ -z "$PID" ]; then
+		printf "Expecting a PID!\n";
+		return;
+	fi;
+	echo "Setting core limit for $PID to infinite...";
+	adb shell prlimit $PID 4 -1 -1
+}
+
+# core - send SIGV and pull the core for process
+# $1 = PID of process (e.g., $(pid mediaserver))
+#
+# NOTE: coredump_setup must be called once per boot for core dumps to be
+#       enabled globally.
+
+function core()
+{
+	local PID=$1;
+
+	if [ -z "$PID" ]; then
+		printf "Expecting a PID!\n";
+		return;
+	fi;
+
+	local CORENAME=core.$PID;
+	local COREPATH=/cores/$CORENAME;
+	local SIG=SEGV;
+
+	coredump_enable $1;
+
+	local done=0;
+	while [ $(adb shell "[ -d /proc/$PID ] && echo -n yes") ]; do
+		printf "\tSending SIG%s to %d...\n" $SIG $PID;
+		adb shell kill -$SIG $PID;
+		sleep 1;
+	done;
+
+	adb shell "while [ ! -f $COREPATH ] ; do echo waiting for $COREPATH to be generated; sleep 1; done"
+	echo "Done: core is under $COREPATH on device.";
 }
 
 # systemstack - dump the current stack trace of all threads in the system process
@@ -1132,10 +1184,151 @@ function is64bit()
     fi
 }
 
+function adb_get_product_device() {
+  echo `adb shell getprop ro.product.device | sed s/.$//`
+}
+
+# returns 0 when process is not traced
+function adb_get_traced_by() {
+  echo `adb shell cat /proc/$1/status | grep -e "^TracerPid:" | sed "s/^TracerPid:\t//" | sed s/.$//`
+}
+
+function gdbclient() {
+  # TODO:
+  # 1. Check for ANDROID_SERIAL/multiple devices
+  local PROCESS_NAME="n/a"
+  local PID=$1
+  local PORT=5039
+  if [ -z "$PID" ]; then
+    echo "Usage: gdbclient <pid|processname> [port number]"
+    return -1
+  fi
+  local DEVICE=$(adb_get_product_device)
+
+  if [ -z "$DEVICE" ]; then
+    echo "Error: Unable to get device name. Please check if device is connected and ANDROID_SERIAL is set."
+    return -2
+  fi
+
+  if [ -n "$2" ]; then
+    PORT=$2
+  fi
+
+  local ROOT=$(gettop)
+  if [ -z "$ROOT" ]; then
+    # This is for the situation with downloaded symbols (from the build server)
+    # we check if they are available.
+    ROOT=`realpath .`
+  fi
+
+  local OUT_ROOT="$ROOT/out/target/product/$DEVICE"
+  local SYMBOLS_DIR="$OUT_ROOT/symbols"
+
+  if [ ! -d $SYMBOLS_DIR ]; then
+    echo "Error: couldn't find symbols: $SYMBOLS_DIR does not exist or is not a directory."
+    return -3
+  fi
+
+  # let's figure out which executable we are about to debug
+
+  # check if user specified a name -> resolve to pid
+  if [[ ! "$PID" =~ ^[0-9]+$ ]] ; then
+    PROCESS_NAME=$PID
+    PID=$(pid --exact $PROCESS_NAME)
+    if [ -z "$PID" ]; then
+      echo "Error: couldn't resolve pid by process name: $PROCESS_NAME"
+      return -4
+    fi
+  fi
+
+  local EXE=`adb shell readlink /proc/$PID/exe | sed s/.$//`
+  # TODO: print error in case there is no such pid
+  local LOCAL_EXE_PATH=$SYMBOLS_DIR$EXE
+
+  if [ ! -f $LOCAL_EXE_PATH ]; then
+    echo "Error: unable to find symbols for executable $EXE: file $LOCAL_EXE_PATH does not exist"
+    return -5
+  fi
+
+  local USE64BIT=""
+
+  if [[ "$(file $LOCAL_EXE_PATH)" =~ 64-bit ]]; then
+    USE64BIT="64"
+  fi
+
+  local GDB=
+  local GDB64=
+  local CPU_ABI=`adb shell getprop ro.product.cpu.abilist | sed s/.$//`
+  # TODO: we assume these are available via $PATH
+  if [[ $CPU_ABI =~ (^|,)arm64 ]]; then
+    GDB=arm-linux-androideabi-gdb
+    GDB64=aarch64-linux-android-gdb
+  elif [[ $CPU_ABI =~ (^|,)arm ]]; then
+    GDB=arm-linux-androideabi-gdb
+  elif [[ $CPU_ABI =~ (^|,)x86_64 ]]; then
+    GDB=x86_64-linux-androideabi-gdb
+  elif [[ $CPU_ABI =~ (^|,)x86 ]]; then
+    GDB=x86_64-linux-androideabi-gdb
+  elif [[ $CPU_ABI =~ (^|,)mips64 ]]; then
+    GDB=mipsel-linux-android-gdb
+    GDB64=mips64el-linux-android-gdb
+  elif [[ $CPU_ABI =~ (^|,)mips ]]; then
+    GDB=mipsel-linux-android-gdb
+  else
+    echo "Error: unrecognized cpu.abilist: $CPU_ABI"
+    return -6
+  fi
+
+  # TODO: check if tracing process is gdbserver and not some random strace...
+  if [ $(adb_get_traced_by $PID) -eq 0 ]; then
+    # start gdbserver
+    echo "Starting gdbserver..."
+    # TODO: check if adb is already listening $PORT
+    # to avoid unnecessary calls
+    echo ". adb forward for port=$PORT..."
+    adb forward tcp:$PORT tcp:$PORT
+    echo ". starting gdbserver to attach to pid=$PID..."
+    adb shell gdbserver$USE64BIT :$PORT --attach $PID &
+    echo ". give it couple of seconds to start..."
+    sleep 2
+    echo ". done"
+  else
+    echo "It looks like gdbserver is already attached to $PID (process is traced), trying to connect to it using local port=$PORT"
+  fi
+
+  local OUT_SO_SYMBOLS=$SYMBOLS_DIR/system/lib$USE64BIT
+  local OUT_VENDOR_SO_SYMBOLS=$SYMBOLS_DIR/vendor/lib$USE64BIT
+  local ART_CMD=""
+
+  echo >|"$OUT_ROOT/gdbclient.cmds" "set solib-absolute-prefix $SYMBOLS_DIR"
+  echo >>"$OUT_ROOT/gdbclient.cmds" "set solib-search-path $OUT_SO_SYMBOLS:$OUT_SO_SYMBOLS/hw:$OUT_SO_SYMBOLS/ssl/engines:$OUT_SO_SYMBOLS/drm:$OUT_SO_SYMBOLS/egl:$OUT_SO_SYMBOLS/soundfx:$OUT_VENDOR_SO_SYMBOLS:$OUT_VENDOR_SO_SYMBOLS/hw:$OUT_VENDOR_SO_SYMBOLS/egl"
+  local DALVIK_GDB_SCRIPT=$ROOT/development/scripts/gdb/dalvik.gdb
+  if [ -f $DALVIK_GDB_SCRIPT ]; then
+    echo >>"$OUT_ROOT/gdbclient.cmds" "source $DALVIK_GDB_SCRIPT"
+    ART_CMD="art-on"
+  else
+    echo "Warning: couldn't find $DALVIK_GDB_SCRIPT - ART debugging options will not be available"
+  fi
+  echo >>"$OUT_ROOT/gdbclient.cmds" "target remote :$PORT"
+  if [[ $EXE =~ (^|/)(app_process|dalvikvm)(|32|64)$ ]]; then
+    echo >> "$OUT_ROOT/gdbclient.cmds" $ART_CMD
+  fi
+
+  echo >>"$OUT_ROOT/gdbclient.cmds" ""
+
+  local WHICH_GDB=$GDB
+
+  if [ -n "$USE64BIT" -a -n "$GDB64" ]; then
+    WHICH_GDB=$GDB64
+  fi
+
+  gdbwrapper $WHICH_GDB "$OUT_ROOT/gdbclient.cmds" "$LOCAL_EXE_PATH"
+}
+
 # gdbclient now determines whether the user wants to debug a 32-bit or 64-bit
 # executable, set up the approriate gdbserver, then invokes the proper host
 # gdb.
-function gdbclient()
+function gdbclient_old()
 {
    local OUT_ROOT=$(get_abs_build_var PRODUCT_OUT)
    local OUT_SYMBOLS=$(get_abs_build_var TARGET_OUT_UNSTRIPPED)
@@ -1567,15 +1760,22 @@ function godir () {
     \cd $T/$pathname
 }
 
-function repopick() {
-    T=$(gettop)
-    $T/build/tools/repopick.py $@
+# Make using all available CPUs
+function mka() {
+    case `uname -s` in
+        Darwin)
+            make -j `sysctl hw.ncpu|cut -d" " -f2` "$@"
+            ;;
+        *)
+            schedtool -B -n 1 -e ionice -n 1 make -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) "$@"
+            ;;
+    esac
 }
 
 function fixup_common_out_dir() {
     common_out_dir=$(get_build_var OUT_DIR)/target/common
     target_device=$(get_build_var TARGET_DEVICE)
-    if [ ! -z $PA_FIXUP_COMMON_OUT ]; then
+    if [ ! -z $ANDROID_FIXUP_COMMON_OUT ]; then
         if [ -d ${common_out_dir} ] && [ ! -L ${common_out_dir} ]; then
             mv ${common_out_dir} ${common_out_dir}-${target_device}
             ln -s ${common_out_dir}-${target_device} ${common_out_dir}
@@ -1588,37 +1788,6 @@ function fixup_common_out_dir() {
         [ -L ${common_out_dir} ] && rm ${common_out_dir}
         mkdir -p ${common_out_dir}
     fi
-}
-
-function mka() {
-    case `uname -s` in
-        Darwin)
-            make -j `sysctl hw.ncpu|cut -d" " -f2` "$@"
-            ;;
-        *)
-            schedtool -B -n 1 -e ionice -n 1 make -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) "$@"
-            ;;
-    esac
-}
-
-function reposync() {
-    case `uname -s` in
-        Darwin)
-            repo sync -j 4 "$@"
-            ;;
-        *)
-            schedtool -B -n 1 -e ionice -n 1 `which repo` sync -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) "$@"
-            ;;
-    esac
-}
-
-function repodiff() {
-    if [ -z "$*" ]; then
-        echo "Usage: repodiff <ref-from> [[ref-to] [--numstat]]"
-        return
-    fi
-    diffopts=$* repo forall -c \
-      'echo "$REPO_PATH ($REPO_REMOTE)"; git diff ${diffopts} 2>/dev/null ;'
 }
 
 # Force JAVA_HOME to point to java 1.7 or java 1.6  if it isn't already set.
@@ -1663,6 +1832,13 @@ function set_java_home() {
       export ANDROID_SET_JAVA_HOME=true
     fi
 }
+
+function repopick() {
+    set_stuff_for_environment
+    T=$(gettop)
+    $T/build/tools/repopick.py $@
+}
+
 
 # Print colored exit condition
 function pez {
@@ -1710,25 +1886,7 @@ function make()
     return $ret
 }
 
-function chromium_prebuilt() {
-    T=$(gettop)
-    export TARGET_DEVICE=$(get_build_var TARGET_DEVICE)
-    hash=$T/prebuilts/chromium/$TARGET_DEVICE/hash.txt
-    libsCheck=$T/prebuilts/chromium/$TARGET_DEVICE/lib/libwebviewchromium.so
-    appCheck=$T/prebuilts/chromium/$TARGET_DEVICE/app/webview
-    device_target=$T/prebuilts/chromium/$TARGET_DEVICE/
 
-    if [ -r $hash ] && [ $(git --git-dir=$T/external/chromium_org/.git --work-tree=$T/external/chromium_org rev-parse --verify HEAD) == $(cat $hash) ] && [ -f $libsCheck ] && [ -d $appCheck ]; then
-        export PRODUCT_PREBUILT_WEBVIEWCHROMIUM=yes
-        echo "** Prebuilt Chromium is up-to-date; Will be used for build **"
-    else
-        export PRODUCT_PREBUILT_WEBVIEWCHROMIUM=no
-        rm -rfv $device_target
-        echo ""
-        echo "** Prebuilt Chromium out-of-date/not found; Will build from source **"
-        echo ""
-    fi
-}
 
 if [ "x$SHELL" != "x/bin/bash" ]; then
     case `ps -o command -p $$` in
@@ -1751,19 +1909,17 @@ do
 done
 unset f
 
-addcompletions
-
 # Add completions
-#check_bash_version && {
-#    dirs="sdk/bash_completion vendor/hazy/bash_completion"
-#    for dir in $dirs; do
-#    if [ -d ${dir} ]; then
-#        for f in `/bin/ls ${dir}/[a-z]*.bash 2> /dev/null`; do
-#            echo "including $f"
-#            . $f
-#        done
-#    fi
-#    done
-#}
-#
-#export ANDROID_BUILD_TOP=$(gettop)
+check_bash_version && {
+    dirs="sdk/bash_completion"
+    for dir in $dirs; do
+    if [ -d ${dir} ]; then
+        for f in `/bin/ls ${dir}/[a-z]*.bash 2> /dev/null`; do
+            echo "including $f"
+            . $f
+        done
+    fi
+    done
+}
+
+export ANDROID_BUILD_TOP=$(gettop)

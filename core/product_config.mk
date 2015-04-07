@@ -184,9 +184,13 @@ ifneq ($(strip $(TARGET_BUILD_APPS)),)
 all_product_configs := $(call get-product-makefiles,\
     $(SRC_TARGET_DIR)/product/AndroidProducts.mk)
 else
-# Read in all of the product definitions specified by the AndroidProducts.mk
-# files in the tree.
-all_product_configs := $(get-all-product-makefiles)
+ifneq ($(CUSTOM_BUILD),)
+    all_product_configs := $(shell ls device/*/$(CUSTOM_BUILD)/$(TARGET_PRODUCT).mk)
+  else
+    # Read in all of the product definitions specified by the AndroidProducts.mk
+    # files in the tree.
+    all_product_configs := $(get-all-product-makefiles)
+  endif # CUSTOM_BUILD
 endif
 
 ifeq ($(CUSTOM_BUILD),)
@@ -208,7 +212,6 @@ $(foreach f, $(all_product_configs),\
         $(eval all_product_makefiles += $(f))\
         $(if $(filter $(TARGET_PRODUCT),$(basename $(notdir $(f)))),\
             $(eval current_product_makefile += $(f)),)))
-
 _cpm_words :=
 _cpm_word1 :=
 _cpm_word2 :=
@@ -218,7 +221,6 @@ else
 endif
 current_product_makefile := $(strip $(current_product_makefile))
 all_product_makefiles := $(strip $(all_product_makefiles))
-
 
 ifneq (,$(filter product-graph dump-products, $(MAKECMDGOALS)))
 # Import all product makefiles.
@@ -313,19 +315,9 @@ ifneq (,$(extra_locales))
 endif
 
 # Add PRODUCT_LOCALES to PRODUCT_AAPT_CONFIG
-PRODUCT_AAPT_CONFIG := $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_AAPT_CONFIG))
-PRODUCT_AAPT_CONFIG := $(PRODUCT_LOCALES) $(PRODUCT_AAPT_CONFIG)
+PRODUCT_AAPT_CONFIG := $(strip $(PRODUCT_LOCALES) $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_AAPT_CONFIG))
 PRODUCT_AAPT_PREF_CONFIG := $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_AAPT_PREF_CONFIG))
-
-# Default to medium-density assets.
-# (Can be overridden in the device config, e.g.: PRODUCT_AAPT_CONFIG += hdpi)
-PRODUCT_AAPT_CONFIG := $(strip \
-    $(PRODUCT_AAPT_CONFIG) \
-    $(if $(filter %dpi,$(PRODUCT_AAPT_CONFIG)),,mdpi))
-PRODUCT_AAPT_PREF_CONFIG := $(strip $(PRODUCT_AAPT_PREF_CONFIG))
-
-# Everyone gets nodpi and anydpi assets which are density-independent.
-PRODUCT_AAPT_CONFIG += nodpi anydpi
+PRODUCT_AAPT_PREBUILT_DPI := $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_AAPT_PREBUILT_DPI))
 
 # Keep a copy of the space-separated config
 PRODUCT_AAPT_CONFIG_SP := $(PRODUCT_AAPT_CONFIG)
@@ -333,8 +325,6 @@ PRODUCT_AAPT_CONFIG_SP := $(PRODUCT_AAPT_CONFIG)
 # Convert spaces to commas.
 PRODUCT_AAPT_CONFIG := \
     $(subst $(space),$(comma),$(strip $(PRODUCT_AAPT_CONFIG)))
-PRODUCT_AAPT_PREF_CONFIG := \
-    $(subst $(space),$(comma),$(strip $(PRODUCT_AAPT_PREF_CONFIG)))
 
 # product-scoped aapt flags
 PRODUCT_AAPT_FLAGS :=
@@ -416,9 +406,8 @@ PRODUCT_PROPERTY_OVERRIDES := \
 PRODUCT_DEFAULT_PROPERTY_OVERRIDES := \
     $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_DEFAULT_PROPERTY_OVERRIDES))
 
-# Override/append default build.prop configurations via device tree
 PRODUCT_BUILD_PROP_OVERRIDES := \
-    $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_BUILD_PROP_OVERRIDES))
+	$(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_BUILD_PROP_OVERRIDES))
 
 # Should we use the default resources or add any product specific overlays
 PRODUCT_PACKAGE_OVERLAYS := \
@@ -451,3 +440,21 @@ PRODUCT_EXTRA_RECOVERY_KEYS := $(sort \
 # If there is no room in /system for the image, place it in /data
 PRODUCT_DEX_PREOPT_IMAGE_IN_DATA := \
     $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_DEX_PREOPT_IMAGE_IN_DATA))
+
+PRODUCT_DEX_PREOPT_DEFAULT_FLAGS := \
+    $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_DEX_PREOPT_DEFAULT_FLAGS))
+PRODUCT_DEX_PREOPT_BOOT_FLAGS := \
+    $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_DEX_PREOPT_BOOT_FLAGS))
+# Resolve and setup per-module dex-preopot configs.
+PRODUCT_DEX_PREOPT_MODULE_CONFIGS := \
+    $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_DEX_PREOPT_MODULE_CONFIGS))
+# If a module has multiple setups, the first takes precedence.
+_pdpmc_modules :=
+$(foreach c,$(PRODUCT_DEX_PREOPT_MODULE_CONFIGS),\
+  $(eval m := $(firstword $(subst =,$(space),$(c))))\
+  $(if $(filter $(_pdpmc_modules),$(m)),,\
+    $(eval _pdpmc_modules += $(m))\
+    $(eval cf := $(patsubst $(m)=%,%,$(c)))\
+    $(eval cf := $(subst $(_PDPMC_SP_PLACE_HOLDER),$(space),$(cf)))\
+    $(eval DEXPREOPT.$(TARGET_PRODUCT).$(m).CONFIG := $(cf))))
+_pdpmc_modules :=

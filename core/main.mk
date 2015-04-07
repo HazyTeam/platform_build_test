@@ -168,6 +168,7 @@ $(info $(space))
 $(info Please follow the machine setup instructions at)
 $(info $(space)$(space)$(space)$(space)https://source.android.com/source/initializing.html)
 $(info ************************************************************)
+$(error stop)
 endif
 
 # Check for the current JDK.
@@ -177,9 +178,7 @@ endif
 requires_openjdk := false
 ifeq ($(LEGACY_USE_JAVA6),)
 ifeq ($(HOST_OS), linux)
-ifeq ($(USE_ORACLE_JAVA),)
 requires_openjdk := true
-endif
 endif
 endif
 
@@ -193,6 +192,7 @@ $(info ************************************************************)
 $(info You asked for an OpenJDK 7 build but your version is)
 $(info $(java_version_str).)
 $(info ************************************************************)
+$(error stop)
 endif # java version is not OpenJdk
 else # if requires_openjdk
 ifneq ($(shell echo '$(java_version_str)' | grep -i openjdk),)
@@ -203,6 +203,7 @@ $(info You use OpenJDK but only Sun/Oracle JDK is supported.)
 $(info Please follow the machine setup instructions at)
 $(info $(space)$(space)$(space)$(space)https://source.android.com/source/download.html)
 $(info ************************************************************)
+$(error stop)
 endif # java version is not Sun Oracle JDK
 endif # if requires_openjdk
 
@@ -218,6 +219,7 @@ $(info $(space))
 $(info Please follow the machine setup instructions at)
 $(info $(space)$(space)$(space)$(space)https://source.android.com/source/download.html)
 $(info ************************************************************)
+$(error stop)
 endif
 
 
@@ -322,7 +324,7 @@ enable_target_debugging := true
 tags_to_install :=
 ifneq (,$(user_variant))
   # Target is secure in user builds.
-  ADDITIONAL_DEFAULT_PROPERTIES += ro.secure=0
+  ADDITIONAL_DEFAULT_PROPERTIES += ro.secure=1
 
   ifeq ($(user_variant),userdebug)
     # Pick up some extra useful tools
@@ -332,7 +334,7 @@ ifneq (,$(user_variant))
     ADDITIONAL_BUILD_PROPERTIES += dalvik.vm.lockprof.threshold=500
   else
     # Disable debugging in plain user builds.
-    enable_target_debugging := true
+    enable_target_debugging :=
   endif
 
   # Turn on Dalvik preoptimization for libdvm.so user builds, but only if not
@@ -342,7 +344,7 @@ ifneq (,$(user_variant))
     ifeq ($(DALVIK_VM_LIB),libdvm.so)
       ifeq ($(user_variant),user)
         ifeq ($(HOST_OS),linux)
-          WITH_DEXPREOPT := false
+          WITH_DEXPREOPT := true
         endif
       endif
     endif
@@ -374,7 +376,6 @@ endif # !enable_target_debugging
 
 ifeq ($(TARGET_BUILD_VARIANT),eng)
 tags_to_install := debug eng
-WITH_DEXPREOPT := false
 ifneq ($(filter ro.setupwizard.mode=ENABLED, $(call collapse-pairs, $(ADDITIONAL_BUILD_PROPERTIES))),)
   # Don't require the setup wizard on eng builds
   ADDITIONAL_BUILD_PROPERTIES := $(filter-out ro.setupwizard.mode=%,\

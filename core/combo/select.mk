@@ -80,9 +80,7 @@ ifneq ($(USE_CCACHE),)
   # We don't really use system headers much so the rootdir is
   # fine; ensures these paths are relative for all Android trees
   # on a workstation.
-  ifeq ($(CCACHE_BASEDIR),)
-    export CCACHE_BASEDIR := $(ANDROID_BUILD_TOP)
-  endif
+  export CCACHE_BASEDIR := /
 
   # Workaround for ccache with clang.
   # See http://petereisentraut.blogspot.com/2011/09/ccache-and-clang-part-2.html
@@ -94,16 +92,7 @@ ifneq ($(USE_CCACHE),)
   ifeq ($(HOST_OS)-$(BUILD_OS),windows-linux)
     CCACHE_HOST_TAG := linux-$(HOST_PREBUILT_ARCH)
   endif
-
-  # Check if there is a ccache binary provided by the system
-  # If there is, use it instead of prebuilt binary
-  ccache_version := $(shell ccache --version 2>/dev/null)
-  ifdef ccache_version
-    ccache := $(shell which ccache)
-  else
-    ccache := prebuilts/misc/$(CCACHE_HOST_TAG)/ccache/ccache
-  endif
-
+  ccache := prebuilts/misc/$(CCACHE_HOST_TAG)/ccache/ccache
   # Check that the executable is here.
   ccache := $(strip $(wildcard $(ccache)))
   ifdef ccache
