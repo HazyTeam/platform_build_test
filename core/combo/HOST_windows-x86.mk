@@ -24,7 +24,7 @@ TOOLS_EXE_SUFFIX := .exe
 
 # Settings to use MinGW has a cross-compiler under Linux
 ifneq ($(findstring Linux,$(UNAME)),)
-ifneq ($(strip $(USE_MINGW)),)
+ifdef USE_MINGW
 HOST_ACP_UNAVAILABLE := true
 TOOLS_EXE_SUFFIX :=
 $(combo_2nd_arch_prefix)HOST_GLOBAL_CFLAGS += -DUSE_MINGW -DWIN32_LEAN_AND_MEAN
@@ -41,7 +41,9 @@ endif # Linux
 
 # Workaround differences in inttypes.h between host and target.
 # See bug 12708004.
-$(combo_2nd_arch_prefix)HOST_GLOBAL_CFLAGS += -D__STDC_FORMAT_MACROS -D__STDC_CONSTANT_MACROS -D__USE_MINGW_ANSI_STDIO
+$(combo_2nd_arch_prefix)HOST_GLOBAL_CFLAGS += -D__STDC_FORMAT_MACROS -D__STDC_CONSTANT_MACROS
+# Use C99-compliant printf functions (%zd).
+$(combo_2nd_arch_prefix)HOST_GLOBAL_CFLAGS += -D__USE_MINGW_ANSI_STDIO=1
 
 $(combo_2nd_arch_prefix)HOST_CC := $(TOOLS_PREFIX)gcc$(TOOLS_EXE_SUFFIX)
 $(combo_2nd_arch_prefix)HOST_CXX := $(TOOLS_PREFIX)g++$(TOOLS_EXE_SUFFIX)

@@ -58,7 +58,7 @@ BUILD_OS := $(HOST_OS)
 # Under Linux, if USE_MINGW is set, we change HOST_OS to Windows to build the
 # Windows SDK. Only a subset of tools and SDK will manage to build properly.
 ifeq ($(HOST_OS),linux)
-ifneq ($(USE_MINGW),)
+ifdef USE_MINGW
   HOST_OS := windows
 endif
 endif
@@ -67,24 +67,15 @@ ifeq ($(HOST_OS),)
 $(error Unable to determine HOST_OS from uname -sm: $(UNAME)!)
 endif
 
-# TODO: Replace BUILD_HOST_64bit with a flag that forces 32-bit build,
-# after we default to 64-bit host build.
-ifeq (,$(BUILD_HOST_64bit))
-# Default to 32-bit-by-default multilib host build.
-HOST_PREFER_32_BIT := true
-endif
-
 # HOST_ARCH
 ifneq (,$(findstring x86_64,$(UNAME)))
   HOST_ARCH := x86_64
   HOST_2ND_ARCH := x86
   HOST_IS_64_BIT := true
-endif
-
-ifeq ($(HOST_PREFER_32_BIT),true)
-SDK_HOST_ARCH := x86
 else
-SDK_HOST_ARCH := $(HOST_ARCH)
+ifneq (,$(findstring x86,$(UNAME)))
+$(error Building on a 32-bit x86 host is not supported: $(UNAME)!)
+endif
 endif
 
 BUILD_ARCH := $(HOST_ARCH)
@@ -109,11 +100,7 @@ endif
 HOST_PREBUILT_ARCH := x86
 # This is the standard way to name a directory containing prebuilt host
 # objects. E.g., prebuilt/$(HOST_PREBUILT_TAG)/cc
-ifeq ($(HOST_OS),windows)
-  HOST_PREBUILT_TAG := windows
-else
-  HOST_PREBUILT_TAG := $(HOST_OS)-$(HOST_PREBUILT_ARCH)
-endif
+HOST_PREBUILT_TAG := $(BUILD_OS)-$(HOST_PREBUILT_ARCH)
 
 # TARGET_COPY_OUT_* are all relative to the staging directory, ie PRODUCT_OUT.
 # Define them here so they can be used in product config files.
@@ -142,6 +129,17 @@ ifneq ($(build_variant)-$(words $(TARGET_BUILD_VARIANT)),-1)
 $(warning bad TARGET_BUILD_VARIANT: $(TARGET_BUILD_VARIANT))
 $(error must be empty or one of: eng user userdebug)
 endif
+
+# Build host as 32-bit for SDK build.
+ifneq ($(filter $(MAKECMDGOALS),win_sdk sdk),)
+HOST_PREFER_32_BIT := true
+endif
+ifdef USE_MINGW
+# We only build sdk host tools in the MinGW windows build.
+# Build it as 32-bit as well.
+HOST_PREFER_32_BIT := true
+endif
+SDK_HOST_ARCH := x86
 
 # Boards may be defined under $(SRC_TARGET_DIR)/board/$(TARGET_DEVICE)
 # or under vendor/*/$(TARGET_DEVICE).  Search in both places, but
@@ -261,6 +259,7 @@ $(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_INTERMEDIATES := $(HOST_OUT)/obj32
 $(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_INTERMEDIATE_LIBRARIES := $($(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_INTERMEDIATES)/lib
 $(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_SHARED_LIBRARIES := $(HOST_OUT)/lib
 $(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_EXECUTABLES := $(HOST_OUT_EXECUTABLES)
+$(HOST_2ND_ARCH_VAR_PREFIX)HOST_OUT_JAVA_LIBRARIES := $(HOST_OUT_JAVA_LIBRARIES)
 
 # The default host library path.
 # It always points to the path where we build libraries in the default bitness.
@@ -386,8 +385,6 @@ TARGET_INSTALLER_OUT := $(PRODUCT_OUT)/installer
 TARGET_INSTALLER_DATA_OUT := $(TARGET_INSTALLER_OUT)/data
 TARGET_INSTALLER_ROOT_OUT := $(TARGET_INSTALLER_OUT)/root
 TARGET_INSTALLER_SYSTEM_OUT := $(TARGET_INSTALLER_OUT)/root/system
-
-TARGET_FACTORY_RAMDISK_OUT := $(PRODUCT_OUT)/factory_ramdisk
 
 COMMON_MODULE_CLASSES := TARGET-NOTICE_FILES HOST-NOTICE_FILES HOST-JAVA_LIBRARIES
 

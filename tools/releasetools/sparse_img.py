@@ -14,18 +14,24 @@
 
 import bisect
 import os
-import sys
 import struct
-import pprint
 from hashlib import sha1
 
-from rangelib import *
+import rangelib
+
 
 class SparseImage(object):
-  """Wraps a sparse image file (and optional file map) into an image
-  object suitable for passing to BlockImageDiff."""
+  """Wraps a sparse image file into an image object.
 
-  def __init__(self, simg_fn, file_map_fn=None):
+  Wraps a sparse image file (and optional file map and clobbered_blocks) into
+  an image object suitable for passing to BlockImageDiff. file_map contains
+  the mapping between files and their blocks. clobbered_blocks contains the set
+  of blocks that should be always written to the target regardless of the old
+  contents (i.e. copying instead of patching). clobbered_blocks should be in
+  the form of a string like "0" or "0 1-5 8".
+  """
+
+  def __init__(self, simg_fn, file_map_fn=None, clobbered_blocks=None):
     self.simg_f = f = open(simg_fn, "rb")
 
     header_bin = f.read(28)
@@ -39,7 +45,6 @@ class SparseImage(object):
     self.blocksize = blk_sz = header[5]
     self.total_blocks = total_blks = header[6]
     total_chunks = header[7]
-    image_checksum = header[8]
 
     if magic != 0xED26FF3A:
       raise ValueError("Magic should be 0xED26FF3A but is 0x%08X" % (magic,))
@@ -59,12 +64,12 @@ class SparseImage(object):
     pos = 0   # in blocks
     care_data = []
     self.offset_map = offset_map = []
+    self.clobbered_blocks = rangelib.RangeSet(data=clobbered_blocks)
 
     for i in range(total_chunks):
       header_bin = f.read(12)
       header = struct.unpack("<2H2I", header_bin)
       chunk_type = header[0]
-      reserved1 = header[1]
       chunk_sz = header[2]
       total_sz = header[3]
       data_sz = total_sz - 12
@@ -102,11 +107,11 @@ class SparseImage(object):
         raise ValueError("Unknown chunk type 0x%04X not supported" %
                          (chunk_type,))
 
-    self.care_map = RangeSet(care_data)
+    self.care_map = rangelib.RangeSet(care_data)
     self.offset_index = [i[0] for i in offset_map]
 
     if file_map_fn:
-      self.LoadFileBlockMap(file_map_fn)
+      self.LoadFileBlockMap(file_map_fn, self.clobbered_blocks)
     else:
       self.file_map = {"__DATA": self.care_map}
 
@@ -114,9 +119,10 @@ class SparseImage(object):
     return [d for d in self._GetRangeData(ranges)]
 
   def TotalSha1(self):
-    """Return the SHA-1 hash of all data in the 'care' regions of this image."""
+    """Return the SHA-1 hash of all data in the 'care' regions but not in
+    clobbered_blocks of this image."""
     h = sha1()
-    for d in self._GetRangeData(self.care_map):
+    for d in self._GetRangeData(self.care_map.subtract(self.clobbered_blocks)):
       h.update(d)
     return h.hexdigest()
 
@@ -159,24 +165,30 @@ class SparseImage(object):
           yield fill_data * (this_read * (self.blocksize >> 2))
         to_read -= this_read
 
-  def LoadFileBlockMap(self, fn):
+  def LoadFileBlockMap(self, fn, clobbered_blocks):
     remaining = self.care_map
     self.file_map = out = {}
 
     with open(fn) as f:
       for line in f:
         fn, ranges = line.split(None, 1)
-        ranges = RangeSet.parse(ranges)
+        ranges = rangelib.RangeSet.parse(ranges)
         out[fn] = ranges
         assert ranges.size() == ranges.intersect(remaining).size()
+
+        # Currently we assume that blocks in clobbered_blocks are not part of
+        # any file.
+        assert not clobbered_blocks.overlaps(ranges)
         remaining = remaining.subtract(ranges)
 
+    remaining = remaining.subtract(clobbered_blocks)
+
     # For all the remaining blocks in the care_map (ie, those that
-    # aren't part of the data for any file), divide them into blocks
-    # that are all zero and blocks that aren't.  (Zero blocks are
-    # handled specially because (1) there are usually a lot of them
-    # and (2) bsdiff handles files with long sequences of repeated
-    # bytes especially poorly.)
+    # aren't part of the data for any file nor part of the clobbered_blocks),
+    # divide them into blocks that are all zero and blocks that aren't.
+    # (Zero blocks are handled specially because (1) there are usually
+    # a lot of them and (2) bsdiff handles files with long sequences of
+    # repeated bytes especially poorly.)
 
     zero_blocks = []
     nonzero_blocks = []
@@ -186,7 +198,7 @@ class SparseImage(object):
     for s, e in remaining:
       for b in range(s, e):
         idx = bisect.bisect_right(self.offset_index, b) - 1
-        chunk_start, chunk_len, filepos, fill_data = self.offset_map[idx]
+        chunk_start, _, filepos, fill_data = self.offset_map[idx]
         if filepos is not None:
           filepos += (b-chunk_start) * self.blocksize
           f.seek(filepos, os.SEEK_SET)
@@ -204,8 +216,9 @@ class SparseImage(object):
           nonzero_blocks.append(b)
           nonzero_blocks.append(b+1)
 
-    out["__ZERO"] = RangeSet(data=zero_blocks)
-    out["__NONZERO"] = RangeSet(data=nonzero_blocks)
+    out["__ZERO"] = rangelib.RangeSet(data=zero_blocks)
+    out["__NONZERO"] = rangelib.RangeSet(data=nonzero_blocks)
+    out["__COPY"] = clobbered_blocks
 
   def ResetFileMap(self):
     """Throw away the file map and treat the entire image as

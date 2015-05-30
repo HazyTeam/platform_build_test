@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 The Android Open Source Project
+# Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,11 +14,17 @@
 # limitations under the License.
 #
 
-# Provides a functioning Dalvik environment without Android frameworks
-
-PRODUCT_PACKAGES += \
-    core \
-    libdvm \
-    dexopt
-
-include $(SRC_TARGET_DIR)/product/runtime_common.mk
+ifdef ANDROID_FORCE_JACK_ENABLED
+LOCAL_JACK_ENABLED := $(ANDROID_FORCE_JACK_ENABLED)
+endif
+LOCAL_JACK_ENABLED := $(strip $(LOCAL_JACK_ENABLED))
+ifneq ($(LOCAL_JACK_ENABLED),full)
+ifneq ($(LOCAL_JACK_ENABLED),incremental)
+ifdef LOCAL_JACK_ENABLED
+ifneq ($(LOCAL_JACK_ENABLED),disabled)
+$(error $(LOCAL_PATH): invalid LOCAL_JACK_ENABLED "$(LOCAL_JACK_ENABLED)" for $(LOCAL_MODULE))
+endif
+endif
+LOCAL_JACK_ENABLED :=
+endif
+endif

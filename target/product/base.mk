@@ -94,7 +94,6 @@ PRODUCT_PACKAGES += \
     monkey \
     mtpd \
     ndc \
-    netcfg \
     netd \
     ping \
     ping6 \
