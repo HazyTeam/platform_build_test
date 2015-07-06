@@ -179,7 +179,7 @@ include $(BUILD_SYSTEM)/node_fns.mk
 include $(BUILD_SYSTEM)/product.mk
 include $(BUILD_SYSTEM)/device.mk
 
-# A CUSTOM build needs only the CUSTOM product makefiles.
+# A CUSTOM build needs the CUSTOM product makefiles.
 ifneq ($(CUSTOM_BUILD),)
   all_product_configs := $(shell ls device/*/$(CUSTOM_BUILD)/$(TARGET_PRODUCT).mk)
 else
