@@ -267,7 +267,7 @@ endif
 	$(hide) $(foreach line,$(ADDITIONAL_BUILD_PROPERTIES), \
 		echo "$(line)" >> $@;)
 	$(hide) cat $(INSTALLED_ANDROID_INFO_TXT_TARGET) | grep 'require version-' | sed -e 's/require version-/ro.build.expect./g' >> $@
-	$(hide) build/tools/post_process_props.py $@ $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SYSTEM_PROPERTY_BLACKLIST)
+	$(hide) build/tools/post_process_props.py $@ "$(PRODUCT_PROPERTY_UBER_OVERRIDES)" $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SYSTEM_PROPERTY_BLACKLIST)
 
 build_desc :=
 
@@ -568,6 +568,7 @@ $(INSTALLED_BOOTIMAGE_TARGET): $(MKBOOTIMG) $(INTERNAL_BOOTIMAGE_FILES) $(BOOT_S
 	$(hide) $(MKBOOTIMG) $(INTERNAL_BOOTIMAGE_ARGS) $(BOARD_MKBOOTIMG_ARGS) --output $@
 	$(BOOT_SIGNER) /boot $@ $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_VERITY_SIGNING_KEY).pk8 $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_VERITY_SIGNING_KEY).x509.pem $@
 	$(hide) $(call assert-max-image-size,$@,$(BOARD_BOOTIMAGE_PARTITION_SIZE))
+	@echo -e ${CL_CYN}"Made boot image: $@"${CL_RST}
 
 .PHONY: bootimage-nodeps
 bootimage-nodeps: $(MKBOOTIMG) $(BOOT_SIGNER)
@@ -576,7 +577,9 @@ bootimage-nodeps: $(MKBOOTIMG) $(BOOT_SIGNER)
 	$(BOOT_SIGNER) /boot $(INSTALLED_BOOTIMAGE_TARGET) $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_VERITY_SIGNING_KEY).pk8 $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_VERITY_SIGNING_KEY).x509.pem $(INSTALLED_BOOTIMAGE_TARGET)
 	$(hide) $(call assert-max-image-size,$(INSTALLED_BOOTIMAGE_TARGET),$(BOARD_BOOTIMAGE_PARTITION_SIZE))
 
-else ifeq (true,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SUPPORTS_VBOOT)) # PRODUCT_SUPPORTS_BOOT_SIGNER != true
+else ifndef BOARD_CUSTOM_BOOTIMG_MK
+
+  ifeq (true,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SUPPORTS_VERITY)) # TARGET_BOOTIMAGE_USE_EXT2 != true
 
 $(INSTALLED_BOOTIMAGE_TARGET): $(MKBOOTIMG) $(INTERNAL_BOOTIMAGE_FILES) $(VBOOT_SIGNER)
 	$(call pretty,"Target boot image: $@")
@@ -855,7 +858,8 @@ recovery_ramdisk := $(PRODUCT_OUT)/ramdisk-recovery.img
 recovery_uncompressed_ramdisk := $(PRODUCT_OUT)/ramdisk-recovery.cpio
 recovery_binary := $(call intermediates-dir-for,EXECUTABLES,recovery)/recovery
 recovery_build_prop := $(intermediate_system_build_prop)
-recovery_resources_common := $(call include-path-for, recovery)/res
+recovery_uncompressed_ramdisk := $(PRODUCT_OUT)/ramdisk-recovery.cpio
+recovery_resources_common := $(call project-path-for,recovery)/res
 
 # Set recovery_density to the density bucket of the device.
 recovery_density := unknown
@@ -887,7 +891,7 @@ endif
 # its private recovery resources.
 
 ifneq (,$(filter xxxhdpi 560dpi xxhdpi 400dpi xhdpi,$(recovery_density)))
-recovery_font := $(call include-path-for, recovery)/fonts/18x32.png
+recovery_font := $(call project-path-for,recovery)/fonts/18x32.png
 else
 recovery_font := $(call project-path-for,recovery)/fonts/12x22.png
 endif
@@ -911,7 +915,8 @@ else
 recovery_fstab := $(strip $(wildcard $(TARGET_DEVICE_DIR)/recovery.fstab))
 endif
 # Named '.dat' so we don't attempt to use imgdiff for patching it.
-#RECOVERY_RESOURCE_ZIP := $(TARGET_OUT)/etc/recovery-resource.dat
+RECOVERY_RESOURCE_ZIP := $(TARGET_OUT)/etc/recovery-resource.dat
+RECOVERY_PATCH_INSTALL := $(TARGET_OUT)/bin/install-recovery.sh
 
 ifeq ($(recovery_resources_private),)
   $(info No private recovery resources for TARGET_DEVICE $(TARGET_DEVICE))
@@ -958,7 +963,8 @@ ifneq ($(OTA_PACKAGE_SIGNING_KEY),)
 else
     PRODUCT_EXTRA_RECOVERY_KEYS += \
         build/target/product/security/cm \
-        build/target/product/security/cm-devkey
+        build/target/product/security/cm-devkey \
+        build/target/product/security/bacon
 endif
 
 # Generate a file containing the keys that will be read by the
@@ -977,7 +983,7 @@ $(RECOVERY_INSTALL_OTA_KEYS): $(OTA_PUBLIC_KEYS) $(DUMPKEY_JAR) $(extra_keys)
 RECOVERYIMAGE_ID_FILE := $(PRODUCT_OUT)/recovery.id
 # $(1): output file
 define build-recoveryimage-target
-  @echo ----- Making recovery image ------
+  @echo -e ${CL_CYN}"----- Making recovery image ------"${CL_RST}
   $(hide) mkdir -p $(TARGET_RECOVERY_OUT)
   $(hide) mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/etc $(TARGET_RECOVERY_ROOT_OUT)/tmp
   @echo Copying baseline ramdisk...
@@ -992,6 +998,8 @@ define build-recoveryimage-target
   $(hide) rm -rf $(TARGET_RECOVERY_ROOT_OUT)/res/*
   $(hide) cp -rf $(recovery_resources_common)/* $(TARGET_RECOVERY_ROOT_OUT)/res
   $(hide) cp -f $(recovery_font) $(TARGET_RECOVERY_ROOT_OUT)/res/images/font.png
+  $(hide) $(foreach item,$(recovery_root_private), \
+    cp -rf $(item) $(TARGET_RECOVERY_OUT)/)
   $(hide) $(foreach item,$(recovery_resources_private), \
     cp -rf $(item) $(TARGET_RECOVERY_ROOT_OUT)/)
   $(hide) $(foreach item,$(recovery_fstab), \
@@ -999,7 +1007,7 @@ define build-recoveryimage-target
   $(hide) cp $(RECOVERY_INSTALL_OTA_KEYS) $(TARGET_RECOVERY_ROOT_OUT)/res/keys
   $(hide) cat $(INSTALLED_DEFAULT_PROP_TARGET) $(recovery_build_prop) \
           > $(TARGET_RECOVERY_ROOT_OUT)/default.prop
-  $(hide) $(MKBOOTFS) -d $(TARGET_OUT) $(TARGET_RECOVERY_ROOT_OUT) | $(MINIGZIP) > $(recovery_ramdisk)
+  $(hide) $(MKBOOTFS) $(TARGET_RECOVERY_ROOT_OUT) | $(MINIGZIP) > $(recovery_ramdisk)
   $(if $(filter true,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SUPPORTS_VBOOT)), \
     $(hide) $(MKBOOTIMG) $(INTERNAL_RECOVERYIMAGE_ARGS) $(BOARD_MKBOOTIMG_ARGS) --output $(1).unsigned, \
     $(hide) $(MKBOOTIMG) $(INTERNAL_RECOVERYIMAGE_ARGS) $(BOARD_MKBOOTIMG_ARGS) --output $(1) --id > $(RECOVERYIMAGE_ID_FILE))
@@ -1008,10 +1016,14 @@ define build-recoveryimage-target
   $(if $(filter true,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SUPPORTS_VBOOT)), \
     $(VBOOT_SIGNER) $(FUTILITY) $(1).unsigned $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_VBOOT_SIGNING_KEY).vbpubk $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_VBOOT_SIGNING_KEY).vbprivk $(1).keyblock $(1))
   $(hide) $(call assert-max-image-size,$(1),$(BOARD_RECOVERYIMAGE_PARTITION_SIZE))
-  @echo ----- Made recovery image: $(1) --------
+  @echo -e ${CL_CYN}"Made recovery image: $@"${CL_RST}
 endef
 
-$(INSTALLED_RECOVERYIMAGE_TARGET): $(MKBOOTFS) $(MKBOOTIMG) $(MINIGZIP) \
+$(recovery_uncompressed_ramdisk): $(MINIGZIP) $(recovery_ramdisk)
+	@echo -e ${CL_CYN}"----- Making uncompressed recovery ramdisk ------"${CL_RST}
+	$(MKBOOTFS) $(TARGET_RECOVERY_ROOT_OUT) > $@
+
+$(recovery_ramdisk): $(MKBOOTFS) $(MINIGZIP) $(RECOVERYIMAGE_EXTRA_DEPS) \
 		$(INSTALLED_RAMDISK_TARGET) \
 		$(INSTALLED_BOOTIMAGE_TARGET) \
 		$(INTERNAL_RECOVERYIMAGE_FILES) \
@@ -1021,6 +1033,81 @@ $(INSTALLED_RECOVERYIMAGE_TARGET): $(MKBOOTFS) $(MKBOOTIMG) $(MINIGZIP) \
 		$(recovery_fstab) \
 		$(RECOVERY_INSTALL_OTA_KEYS)
 		$(call build-recoveryimage-target, $@)
+
+ifndef BOARD_CUSTOM_BOOTIMG_MK
+$(INSTALLED_RECOVERYIMAGE_TARGET): $(MKBOOTIMG) $(recovery_ramdisk) \
+		$(recovery_kernel)
+	$(hide) $(MKBOOTIMG) $(INTERNAL_RECOVERYIMAGE_ARGS) $(BOARD_MKBOOTIMG_ARGS) --output $@
+ifeq (true,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SUPPORTS_VERITY))
+	$(BOOT_SIGNER) /recovery $@ $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_VERITY_SIGNING_KEY).pk8 $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_VERITY_SIGNING_KEY).x509.pem $@
+endif
+	$(hide) $(call assert-max-image-size,$@,$(BOARD_RECOVERYIMAGE_PARTITION_SIZE))
+	@echo -e ${CL_CYN}"Made recovery image: $@"${CL_RST}
+
+endif # BOARD_CUSTOM_BOOTIMG_MK
+
+recovery_patch_path := $(call intermediates-dir-for,PACKAGING,recovery_patch)
+ota_temp_root := $(PRODUCT_OUT)/ota_temp
+$(RECOVERY_PATCH_INSTALL): PRIVATE_RECOVERY_API_VERSION := $(RECOVERY_API_VERSION)
+$(RECOVERY_PATCH_INSTALL): PRIVATE_RECOVERY_FSTAB_VERSION := $(RECOVERY_FSTAB_VERSION)
+$(RECOVERY_PATCH_INSTALL): $(INSTALLED_RECOVERYIMAGE_TARGET) \
+	$(RECOVERY_FROM_BOOT_PATCH) \
+	$(ALL_PREBUILT) \
+	$(ALL_COPIED_HEADERS) \
+	$(ALL_GENERATED_SOURCES) \
+	$(ALL_DEFAULT_INSTALLED_MODULES) \
+	$(PDK_FUSION_SYSIMG_FILES)
+	@echo "Installing recovery patch to system partition"
+	$(hide) mkdir -p $(ota_temp_root)
+	$(hide) mkdir -p $(ota_temp_root)/BOOT
+	$(hide) mkdir -p $(ota_temp_root)/RECOVERY
+	$(hide) mkdir -p $(ota_temp_root)/BOOTABLE_IMAGES
+	$(hide) mkdir -p $(ota_temp_root)/SYSTEM
+	$(hide) mkdir -p $(ota_temp_root)/SYSTEM/bin
+	$(hide) mkdir -p $(ota_temp_root)/SYSTEM/etc
+	$(hide) mkdir -p $(ota_temp_root)/META
+	$(hide) $(call package_files-copy-root, \
+		$(TARGET_RECOVERY_ROOT_OUT),$(ota_temp_root)/RECOVERY/RAMDISK)
+	$(hide) $(call package_files-copy-root, \
+		$(TARGET_ROOT_OUT),$(ota_temp_root)/BOOT/RAMDISK)
+	$(hide) $(call package_files-copy-root, \
+		$(TARGET_OUT)/etc,$(ota_temp_root)/SYSTEM/etc)
+	@echo "recovery_api_version=$(PRIVATE_RECOVERY_API_VERSION)" > $(ota_temp_root)/META/misc_info.txt
+	@echo "fstab_version=$(PRIVATE_RECOVERY_FSTAB_VERSION)" >> $(ota_temp_root)/META/misc_info.txt
+ifdef BOARD_FLASH_BLOCK_SIZE
+	@echo "blocksize=$(BOARD_FLASH_BLOCK_SIZE)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+ifdef BOARD_BOOTIMAGE_PARTITION_SIZE
+	@echo "boot_size=$(BOARD_BOOTIMAGE_PARTITION_SIZE)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+ifdef BOARD_RECOVERYIMAGE_PARTITION_SIZE
+	@echo "recovery_size=$(BOARD_RECOVERYIMAGE_PARTITION_SIZE)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+ifdef TARGET_RECOVERY_FSTYPE_MOUNT_OPTIONS
+	@# TARGET_RECOVERY_FSTYPE_MOUNT_OPTIONS can be empty to indicate that nothing but defaults should be used.
+	@echo "recovery_mount_options=$(TARGET_RECOVERY_FSTYPE_MOUNT_OPTIONS)" >> $(ota_temp_root)/META/misc_info.txt
+else
+	@echo "recovery_mount_options=$(DEFAULT_TARGET_RECOVERY_FSTYPE_MOUNT_OPTIONS)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+	@echo "tool_extensions=$(tool_extensions)" >> $(ota_temp_root)/META/misc_info.txt
+	@echo "default_system_dev_certificate=$(DEFAULT_SYSTEM_DEV_CERTIFICATE)" >> $(ota_temp_root)/META/misc_info.txt
+ifdef PRODUCT_EXTRA_RECOVERY_KEYS
+	@echo "extra_recovery_keys=$(PRODUCT_EXTRA_RECOVERY_KEYS)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+	@echo 'mkbootimg_args=$(BOARD_MKBOOTIMG_ARGS)' >> $(ota_temp_root)/META/misc_info.txt
+	@echo "use_set_metadata=1" >> $(ota_temp_root)/META/misc_info.txt
+	@echo "multistage_support=1" >> $(ota_temp_root)/META/misc_info.txt
+	@echo "update_rename_support=1" >> $(ota_temp_root)/META/misc_info.txt
+ifneq ($(OEM_THUMBPRINT_PROPERTIES),)
+	# OTA scripts are only interested in fingerprint related properties
+	@echo "oem_fingerprint_properties=$(OEM_THUMBPRINT_PROPERTIES)" >> $(ota_temp_root)/META/misc_info.txt
+endif
+	$(call generate-userimage-prop-dictionary, $(ota_temp_root)/META/misc_info.txt)
+	$(hide) cp -r $(PRODUCT_OUT)/boot.img $(ota_temp_root)/BOOTABLE_IMAGES/
+	$(hide) cp -r $(PRODUCT_OUT)/recovery.img $(ota_temp_root)/BOOTABLE_IMAGES/
+	$(hide) ./build/tools/releasetools/make_recovery_patch $(ota_temp_root) $(ota_temp_root)
+	$(hide) cp --remove-destination $(ota_temp_root)/SYSTEM/bin/install-recovery.sh $(TARGET_OUT)/bin/install-recovery.sh
+	$(hide) cp --remove-destination $(ota_temp_root)/SYSTEM/recovery-from-boot.p $(TARGET_OUT)/recovery-from-boot.p
 
 $(RECOVERY_RESOURCE_ZIP): $(INSTALLED_RECOVERYIMAGE_TARGET)
 	$(hide) mkdir -p $(dir $@)
@@ -1034,7 +1121,6 @@ recoveryimage-nodeps:
 else
 RECOVERY_RESOURCE_ZIP :=
 endif
-
 .PHONY: recoveryimage
 recoveryimage: $(INSTALLED_RECOVERYIMAGE_TARGET) $(RECOVERY_RESOURCE_ZIP)
 
@@ -1065,7 +1151,8 @@ INTERNAL_SYSTEMIMAGE_FILES := $(filter $(TARGET_OUT)/%, \
     $(ALL_GENERATED_SOURCES) \
     $(ALL_DEFAULT_INSTALLED_MODULES) \
     $(PDK_FUSION_SYSIMG_FILES) \
-    $(RECOVERY_RESOURCE_ZIP))
+    $(RECOVERY_RESOURCE_ZIP) \
+    $(RECOVERY_PATCH_INSTALL))
 
 
 FULL_SYSTEMIMAGE_DEPS := $(INTERNAL_SYSTEMIMAGE_FILES) $(INTERNAL_USERIMAGES_DEPS)
@@ -1423,9 +1510,10 @@ endif
 # host tools needed to build dist and OTA packages
 
 DISTTOOLS :=  $(HOST_OUT_EXECUTABLES)/minigzip \
+  $(HOST_OUT_EXECUTABLES)/adb \
   $(HOST_OUT_EXECUTABLES)/mkbootfs \
   $(HOST_OUT_EXECUTABLES)/mkbootimg \
-  #$(HOST_OUT_EXECUTABLES)/unpackbootimg \
+  $(HOST_OUT_EXECUTABLES)/unpackbootimg \
   $(HOST_OUT_EXECUTABLES)/fs_config \
   $(HOST_OUT_EXECUTABLES)/zipalign \
   $(HOST_OUT_EXECUTABLES)/bsdiff \
@@ -1519,7 +1607,13 @@ built_ota_tools := \
 	$(call intermediates-dir-for,EXECUTABLES,applypatch_static,,,$(TARGET_PREFER_32_BIT))/applypatch_static \
 	$(call intermediates-dir-for,EXECUTABLES,check_prereq,,,$(TARGET_PREFER_32_BIT))/check_prereq \
 	$(call intermediates-dir-for,EXECUTABLES,sqlite3,,,$(TARGET_PREFER_32_BIT))/sqlite3 \
-	$(call intermediates-dir-for,EXECUTABLES,updater,,,$(TARGET_PREFER_32_BIT))/updater
+
+ifeq ($(TARGET_ARCH),arm64)
+built_ota_tools += $(call intermediates-dir-for,EXECUTABLES,updater,,,32)/updater
+else
+built_ota_tools += $(call intermediates-dir-for,EXECUTABLES,updater)/updater
+endif
+
 $(BUILT_TARGET_FILES_PACKAGE): PRIVATE_OTA_TOOLS := $(built_ota_tools)
 
 $(BUILT_TARGET_FILES_PACKAGE): PRIVATE_RECOVERY_API_VERSION := $(RECOVERY_API_VERSION)
@@ -1574,6 +1668,13 @@ $(BUILT_TARGET_FILES_PACKAGE): \
 		$(TARGET_RECOVERY_ROOT_OUT),$(zip_root)/RECOVERY/RAMDISK)
 	@# OTA install helpers
 	$(hide) $(call package_files-copy-root, $(OUT)/install, $(zip_root)/INSTALL)
+# Just copy the already built boot/recovery images into the target-files dir
+# in order to avoid mismatched images between the out dir and what the ota
+# build system tries to rebuild.
+	$(hide) mkdir -p $(zip_root)/BOOTABLE_IMAGES
+	$(hide) $(ACP) $(INSTALLED_BOOTIMAGE_TARGET) $(zip_root)/BOOTABLE_IMAGES/
+	$(hide) $(ACP) $(INSTALLED_RECOVERYIMAGE_TARGET) $(zip_root)/BOOTABLE_IMAGES/
+
 ifdef INSTALLED_KERNEL_TARGET
 	$(hide) $(ACP) $(INSTALLED_KERNEL_TARGET) $(zip_root)/RECOVERY/kernel
 endif
@@ -1600,7 +1701,7 @@ ifdef BOARD_RAMDISK_OFFSET
 	$(hide) echo "$(BOARD_RAMDISK_OFFSET)" > $(zip_root)/RECOVERY/ramdisk_offset
 endif
 ifeq ($(strip $(BOARD_KERNEL_SEPARATED_DT)),true)
-	$(hide) $(ACP) $(INSTALLED_DTIMAGE_TARGET) $(zip_root)/RECOVERY/dt
+	$(hide) echo "$(INSTALLED_DTIMAGE_TARGET)" > $(zip_root)/RECOVERY/dt_args
 endif
 	@# Components of the boot image
 	$(hide) mkdir -p $(zip_root)/BOOT
@@ -1632,9 +1733,8 @@ endif
 ifdef BOARD_RAMDISK_OFFSET
 	$(hide) echo "$(BOARD_RAMDISK_OFFSET)" > $(zip_root)/BOOT/ramdisk_offset
 endif
-
 ifeq ($(strip $(BOARD_KERNEL_SEPARATED_DT)),true)
-	$(hide) $(ACP) $(INSTALLED_DTIMAGE_TARGET) $(zip_root)/BOOT/dt
+	$(hide) echo "$(INSTALLED_DTIMAGE_TARGET)" > $(zip_root)/BOOT/dt_args
 endif
 ifdef ZIP_SAVE_UBOOTIMG_ARGS
 	$(hide) echo "$(ZIP_SAVE_UBOOTIMG_ARGS)" > $(zip_root)/BOOT/ubootargs
@@ -1718,8 +1818,18 @@ ifdef TARGET_RELEASETOOL_FACTORY_FROM_TARGET_SCRIPT
 	$(hide) echo "factory_from_target_script=$(TARGET_RELEASETOOL_FACTORY_FROM_TARGET_SCRIPT)" >> $(zip_root)/META/misc_info.txt
 endif
 	$(call generate-userimage-prop-dictionary, $(zip_root)/META/misc_info.txt)
+ifeq ($(TARGET_RELEASETOOL_MAKE_RECOVERY_PATCH_SCRIPT),)
 	$(hide) PATH=$(foreach p,$(INTERNAL_USERIMAGES_BINARY_PATHS),$(p):)$$PATH MKBOOTIMG=$(MKBOOTIMG) \
 	    ./build/tools/releasetools/make_recovery_patch $(zip_root) $(zip_root)
+else
+        $(hide) PATH=$(foreach p,$(INTERNAL_USERIMAGES_BINARY_PATHS),$(p):)$$PATH MKBOOTIMG=$(MKBOOTIMG) \
+	$(hide) $(TARGET_RELEASETOOL_MAKE_RECOVERY_PATCH_SCRIPT) $(zip_root) $(zip_root)
+endif
+ifdef PRODUCT_DEFAULT_DEV_CERTIFICATE
+	$(hide) build/tools/getb64key.py $(PRODUCT_DEFAULT_DEV_CERTIFICATE).x509.pem > $(zip_root)/META/releasekey.txt
+else
+	$(hide) build/tools/getb64key.py $(DEFAULT_SYSTEM_DEV_CERTIFICATE).x509.pem > $(zip_root)/META/releasekey.txt
+endif
 	@# Zip everything up, preserving symlinks
 	$(hide) (cd $(zip_root) && zip -qry ../$(notdir $@) .)
 	@# Run fs_config on all the system, vendor, boot ramdisk,
@@ -1787,9 +1897,11 @@ ifneq ($(TARGET_UNIFIED_DEVICE),)
 endif
 
 $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
-	@echo "Package OTA: $@"
+	@echo "$(OTA_FROM_TARGET_SCRIPT)" > $(PRODUCT_OUT)/ota_script_path
+	@echo "$(override_device)" > $(PRODUCT_OUT)/ota_override_device
+	@echo -e ${CL_YLW}"Package OTA:"${CL_RST}" $@"
 	$(hide) PATH=$(foreach p,$(INTERNAL_USERIMAGES_BINARY_PATHS),$(p):)$$PATH MKBOOTIMG=$(MKBOOTIMG) \
-	   ./build/tools/releasetools/ota_from_target_files -v \
+	   $(OTA_FROM_TARGET_SCRIPT) -v \
 	   --block \
 	   -p $(HOST_OUT) \
 	   -k $(KEY_CERT_PAIR) \
@@ -1798,7 +1910,7 @@ $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
 	   $(if $(OEM_OTA_CONFIG), -o $(OEM_OTA_CONFIG)) \
 	   $(BUILT_TARGET_FILES_PACKAGE) $@
 
-HAZY_TARGET_PACKAGE := $(PRODUCT_OUT)/Hazy4.1-$(TARGET_PRODUCT_SHORT)-$(PLATFORM_VERSION)-$(shell date +"%Y-%m-%d")-$(ROM_BUILDTYPE).zip
+HAZY_TARGET_PACKAGE := $(PRODUCT_OUT)/Hazy5-$(TARGET_PRODUCT_SHORT)-$(PLATFORM_VERSION)-$(shell date +"%Y-%m-%d")-$(ROM_BUILDTYPE).zip
 
 .PHONY: otapackage bacon
 otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
@@ -1859,9 +1971,9 @@ else
 endif
 
 $(INTERNAL_UPDATE_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
-	@echo "Package: $@"
+	@echo -e ${CL_YLW}"Package:"${CL_RST}" $@"
 	$(hide) PATH=$(foreach p,$(INTERNAL_USERIMAGES_BINARY_PATHS),$(p):)$$PATH MKBOOTIMG=$(MKBOOTIMG) \
-	   ./build/tools/releasetools/img_from_target_files -v \
+	   $(IMG_FROM_TARGET_SCRIPT) -v \
 	   -p $(HOST_OUT) \
 	   $(BUILT_TARGET_FILES_PACKAGE) $@
 

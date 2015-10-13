@@ -344,31 +344,12 @@ def BuildBootableImage(sourcedir, fs_config_file, info_dict=None):
   """check if uboot is requested"""
   fn = os.path.join(sourcedir, "ubootargs")
   if os.access(fn, os.F_OK):
-    cmd.append("--cmdline")
-    cmd.append(open(fn).read().rstrip("\n"))
-
-  fn = os.path.join(sourcedir, "base")
-  if os.access(fn, os.F_OK):
-    cmd.append("--base")
-    cmd.append(open(fn).read().rstrip("\n"))
-
-  fn = os.path.join(sourcedir, "pagesize")
-  if os.access(fn, os.F_OK):
-    cmd.append("--pagesize")
-    cmd.append(open(fn).read().rstrip("\n"))
-
-  args = info_dict.get("mkbootimg_args", None)
-  if args and args.strip():
-    cmd.extend(shlex.split(args))
-
-  img_unsigned = None
-  if info_dict.get("vboot", None):
-    img_unsigned = tempfile.NamedTemporaryFile()
-    cmd.extend(["--ramdisk", ramdisk_img.name,
-                "--output", img_unsigned.name])
-  else:
-    cmd.extend(["--ramdisk", ramdisk_img.name,
-                "--output", img.name])
+    cmd = ["mkimage"]
+    for argument in open(fn).read().rstrip("\n").split(" "):
+      cmd.append(argument)
+    cmd.append("-d")
+    cmd.append(os.path.join(sourcedir, "kernel")+":"+ramdisk_img.name)
+    cmd.append(img.name)
 
   else:
     # use MKBOOTIMG from environ, or "mkbootimg" if empty or not set
@@ -405,23 +386,29 @@ def BuildBootableImage(sourcedir, fs_config_file, info_dict=None):
       cmd.append("--ramdisk_offset")
       cmd.append(open(fn).read().rstrip("\n"))
 
-    fn = os.path.join(sourcedir, "dt")
+    fn = os.path.join(sourcedir, "dt_args")
     if os.access(fn, os.F_OK):
       cmd.append("--dt")
-      cmd.append(fn)
+      cmd.append(open(fn).read().rstrip("\n"))
 
     fn = os.path.join(sourcedir, "pagesize")
     if os.access(fn, os.F_OK):
-      kernel_pagesize=open(fn).read().rstrip("\n")
       cmd.append("--pagesize")
-      cmd.append(kernel_pagesize)
+      cmd.append(open(fn).read().rstrip("\n"))
 
     args = info_dict.get("mkbootimg_args", None)
     if args and args.strip():
       cmd.extend(shlex.split(args))
 
-    cmd.extend(["--ramdisk", ramdisk_img.name,
+    img_unsigned = None
+    if info_dict.get("vboot", None):
+      img_unsigned = tempfile.NamedTemporaryFile()
+      cmd.extend(["--ramdisk", ramdisk_img.name,
+                "--output", img_unsigned.name])
+    else:
+      cmd.extend(["--ramdisk", ramdisk_img.name,
                 "--output", img.name])
+  
   p = Run(cmd, stdout=subprocess.PIPE)
   p.communicate()
   assert p.returncode == 0, "mkbootimg of %s image failed" % (
@@ -635,8 +622,8 @@ def CheckSize(data, target, info_dict):
   fs_type = None
   limit = None
   if info_dict["fstab"]:
-    if mount_point == "/userdata":
-      mount_point = "/data"
+    if mount_point == "/userdata_extra": mount_point = "/data"
+    if mount_point == "/userdata": mount_point = "/data"
     p = info_dict["fstab"][mount_point]
     fs_type = p.fs_type
     device = p.device

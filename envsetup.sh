@@ -152,6 +152,7 @@ function setpaths()
     # defined in core/config.mk
     targetgccversion=$(get_build_var TARGET_GCC_VERSION)
     targetgccversion2=$(get_build_var 2ND_TARGET_GCC_VERSION)
+    targetlegacygccversion=$(get_build_var TARGET_LEGACY_GCC_VERSION)
     export TARGET_GCC_VERSION=$targetgccversion
 
     # The gcc toolchain does not exists for windows/cygwin. In this case, do not reference it.
@@ -187,7 +188,7 @@ function setpaths()
     case $ARCH in
         arm)
             # Legacy toolchain configuration used for ARM kernel compilation
-            toolchaindir=arm/arm-eabi-$targetgccversion/bin
+            toolchaindir=arm/arm-eabi-$targetlegacygccversion/bin
             if [ -d "$gccprebuiltdir/$toolchaindir" ]; then
                  export ARM_EABI_TOOLCHAIN="$gccprebuiltdir/$toolchaindir"
                  ANDROID_KERNEL_TOOLCHAIN_PATH="$ARM_EABI_TOOLCHAIN":
@@ -299,11 +300,6 @@ function settitle()
 
         # Inject build data into hardstatus
         export PROMPT_COMMAND="$(echo $PROMPT_COMMAND | sed -e 's/\\033]0;\(.*\)\\007/\\033]0;$ANDROID_PROMPT_PREFIX \1\\007/g')"
-    fi
-
-    # Keep us from trying to run in bash that's too old.
-    if [ "${BASH_VERSINFO[0]}" -lt 4 ] ; then
-        return 2
     fi
 
     return 0
@@ -1224,251 +1220,6 @@ function is64bit()
     fi
 }
 
-function adb_get_product_device() {
-  echo `adb shell getprop ro.product.device | sed s/.$//`
-}
-
-# returns 0 when process is not traced
-function adb_get_traced_by() {
-  echo `adb shell cat /proc/$1/status | grep -e "^TracerPid:" | sed "s/^TracerPid:\t//" | sed s/.$//`
-}
-
-function gdbclient() {
-  # TODO:
-  # 1. Check for ANDROID_SERIAL/multiple devices
-  local PROCESS_NAME="n/a"
-  local PID=$1
-  local PORT=5039
-  if [ -z "$PID" ]; then
-    echo "Usage: gdbclient <pid|processname> [port number]"
-    return -1
-  fi
-  local DEVICE=$(adb_get_product_device)
-
-  if [ -z "$DEVICE" ]; then
-    echo "Error: Unable to get device name. Please check if device is connected and ANDROID_SERIAL is set."
-    return -2
-  fi
-
-  if [ -n "$2" ]; then
-    PORT=$2
-  fi
-
-  local ROOT=$(gettop)
-  if [ -z "$ROOT" ]; then
-    # This is for the situation with downloaded symbols (from the build server)
-    # we check if they are available.
-    ROOT=`realpath .`
-  fi
-
-  local OUT_ROOT="$ROOT/out/target/product/$DEVICE"
-  local SYMBOLS_DIR="$OUT_ROOT/symbols"
-
-  if [ ! -d $SYMBOLS_DIR ]; then
-    echo "Error: couldn't find symbols: $SYMBOLS_DIR does not exist or is not a directory."
-    return -3
-  fi
-
-  # let's figure out which executable we are about to debug
-
-  # check if user specified a name -> resolve to pid
-  if [[ ! "$PID" =~ ^[0-9]+$ ]] ; then
-    PROCESS_NAME=$PID
-    PID=$(pid --exact $PROCESS_NAME)
-    if [ -z "$PID" ]; then
-      echo "Error: couldn't resolve pid by process name: $PROCESS_NAME"
-      return -4
-    fi
-  fi
-
-  local EXE=`adb shell readlink /proc/$PID/exe | sed s/.$//`
-  # TODO: print error in case there is no such pid
-  local LOCAL_EXE_PATH=$SYMBOLS_DIR$EXE
-
-  if [ ! -f $LOCAL_EXE_PATH ]; then
-    echo "Error: unable to find symbols for executable $EXE: file $LOCAL_EXE_PATH does not exist"
-    return -5
-  fi
-
-  local USE64BIT=""
-
-  if [[ "$(file $LOCAL_EXE_PATH)" =~ 64-bit ]]; then
-    USE64BIT="64"
-  fi
-
-  local GDB=
-  local GDB64=
-  local CPU_ABI=`adb shell getprop ro.product.cpu.abilist | sed s/.$//`
-  # TODO: we assume these are available via $PATH
-  if [[ $CPU_ABI =~ (^|,)arm64 ]]; then
-    GDB=arm-linux-androideabi-gdb
-    GDB64=aarch64-linux-android-gdb
-  elif [[ $CPU_ABI =~ (^|,)arm ]]; then
-    GDB=arm-linux-androideabi-gdb
-  elif [[ $CPU_ABI =~ (^|,)x86_64 ]]; then
-    GDB=x86_64-linux-androideabi-gdb
-  elif [[ $CPU_ABI =~ (^|,)x86 ]]; then
-    GDB=x86_64-linux-androideabi-gdb
-  elif [[ $CPU_ABI =~ (^|,)mips64 ]]; then
-    GDB=mipsel-linux-android-gdb
-    GDB64=mips64el-linux-android-gdb
-  elif [[ $CPU_ABI =~ (^|,)mips ]]; then
-    GDB=mipsel-linux-android-gdb
-  else
-    echo "Error: unrecognized cpu.abilist: $CPU_ABI"
-    return -6
-  fi
-
-  # TODO: check if tracing process is gdbserver and not some random strace...
-  if [ $(adb_get_traced_by $PID) -eq 0 ]; then
-    # start gdbserver
-    echo "Starting gdbserver..."
-    # TODO: check if adb is already listening $PORT
-    # to avoid unnecessary calls
-    echo ". adb forward for port=$PORT..."
-    adb forward tcp:$PORT tcp:$PORT
-    echo ". starting gdbserver to attach to pid=$PID..."
-    adb shell gdbserver$USE64BIT :$PORT --attach $PID &
-    echo ". give it couple of seconds to start..."
-    sleep 2
-    echo ". done"
-  else
-    echo "It looks like gdbserver is already attached to $PID (process is traced), trying to connect to it using local port=$PORT"
-  fi
-
-  local OUT_SO_SYMBOLS=$SYMBOLS_DIR/system/lib$USE64BIT
-  local OUT_VENDOR_SO_SYMBOLS=$SYMBOLS_DIR/vendor/lib$USE64BIT
-  local ART_CMD=""
-
-  echo >|"$OUT_ROOT/gdbclient.cmds" "set solib-absolute-prefix $SYMBOLS_DIR"
-  echo >>"$OUT_ROOT/gdbclient.cmds" "set solib-search-path $OUT_SO_SYMBOLS:$OUT_SO_SYMBOLS/hw:$OUT_SO_SYMBOLS/ssl/engines:$OUT_SO_SYMBOLS/drm:$OUT_SO_SYMBOLS/egl:$OUT_SO_SYMBOLS/soundfx:$OUT_VENDOR_SO_SYMBOLS:$OUT_VENDOR_SO_SYMBOLS/hw:$OUT_VENDOR_SO_SYMBOLS/egl"
-  local DALVIK_GDB_SCRIPT=$ROOT/development/scripts/gdb/dalvik.gdb
-  if [ -f $DALVIK_GDB_SCRIPT ]; then
-    echo >>"$OUT_ROOT/gdbclient.cmds" "source $DALVIK_GDB_SCRIPT"
-    ART_CMD="art-on"
-  else
-    echo "Warning: couldn't find $DALVIK_GDB_SCRIPT - ART debugging options will not be available"
-  fi
-  echo >>"$OUT_ROOT/gdbclient.cmds" "target remote :$PORT"
-  if [[ $EXE =~ (^|/)(app_process|dalvikvm)(|32|64)$ ]]; then
-    echo >> "$OUT_ROOT/gdbclient.cmds" $ART_CMD
-  fi
-
-  echo >>"$OUT_ROOT/gdbclient.cmds" ""
-
-  local WHICH_GDB=$GDB
-
-  if [ -n "$USE64BIT" -a -n "$GDB64" ]; then
-    WHICH_GDB=$GDB64
-  fi
-
-  gdbwrapper $WHICH_GDB "$OUT_ROOT/gdbclient.cmds" "$LOCAL_EXE_PATH"
-}
-
-# gdbclient now determines whether the user wants to debug a 32-bit or 64-bit
-# executable, set up the approriate gdbserver, then invokes the proper host
-# gdb.
-function gdbclient_old()
-{
-   local OUT_ROOT=$(get_abs_build_var PRODUCT_OUT)
-   local OUT_SYMBOLS=$(get_abs_build_var TARGET_OUT_UNSTRIPPED)
-   local OUT_SO_SYMBOLS=$(get_abs_build_var TARGET_OUT_SHARED_LIBRARIES_UNSTRIPPED)
-   local OUT_VENDOR_SO_SYMBOLS=$(get_abs_build_var TARGET_OUT_VENDOR_SHARED_LIBRARIES_UNSTRIPPED)
-   local OUT_EXE_SYMBOLS=$(get_symbols_directory)
-   local PREBUILTS=$(get_abs_build_var ANDROID_PREBUILTS)
-   local ARCH=$(get_build_var TARGET_ARCH)
-   local GDB
-   case "$ARCH" in
-       arm) GDB=arm-linux-androideabi-gdb;;
-       arm64) GDB=arm-linux-androideabi-gdb; GDB64=aarch64-linux-android-gdb;;
-       mips|mips64) GDB=mips64el-linux-android-gdb;;
-       x86) GDB=x86_64-linux-android-gdb;;
-       x86_64) GDB=x86_64-linux-android-gdb;;
-       *) echo "Unknown arch $ARCH"; return 1;;
-   esac
-
-   if [ "$OUT_ROOT" -a "$PREBUILTS" ]; then
-       local EXE="$1"
-       if [ "$EXE" ] ; then
-           EXE=$1
-           if [[ $EXE =~ ^[^/].* ]] ; then
-               EXE="system/bin/"$EXE
-           fi
-       else
-           EXE="app_process"
-       fi
-
-       local PORT="$2"
-       if [ "$PORT" ] ; then
-           PORT=$2
-       else
-           PORT=":5039"
-       fi
-
-       local PID="$3"
-       if [ "$PID" ] ; then
-           if [[ ! "$PID" =~ ^[0-9]+$ ]] ; then
-               PID=`pid $3`
-               if [[ ! "$PID" =~ ^[0-9]+$ ]] ; then
-                   # that likely didn't work because of returning multiple processes
-                   # try again, filtering by root processes (don't contain colon)
-                   PID=`adb shell ps | \grep $3 | \grep -v ":" | awk '{print $2}'`
-                   if [[ ! "$PID" =~ ^[0-9]+$ ]]
-                   then
-                       echo "Couldn't resolve '$3' to single PID"
-                       return 1
-                   else
-                       echo ""
-                       echo "WARNING: multiple processes matching '$3' observed, using root process"
-                       echo ""
-                   fi
-               fi
-           fi
-           adb forward "tcp$PORT" "tcp$PORT"
-           local USE64BIT="$(is64bit $PID)"
-           adb shell gdbserver$USE64BIT $PORT --attach $PID &
-           sleep 2
-       else
-               echo ""
-               echo "If you haven't done so already, do this first on the device:"
-               echo "    gdbserver $PORT /system/bin/$EXE"
-                   echo " or"
-               echo "    gdbserver $PORT --attach <PID>"
-               echo ""
-       fi
-
-       OUT_SO_SYMBOLS=$OUT_SO_SYMBOLS$USE64BIT
-       OUT_VENDOR_SO_SYMBOLS=$OUT_VENDOR_SO_SYMBOLS$USE64BIT
-
-       echo >|"$OUT_ROOT/gdbclient.cmds" "set solib-absolute-prefix $OUT_SYMBOLS"
-       echo >>"$OUT_ROOT/gdbclient.cmds" "set solib-search-path $OUT_SO_SYMBOLS:$OUT_SO_SYMBOLS/hw:$OUT_SO_SYMBOLS/ssl/engines:$OUT_SO_SYMBOLS/drm:$OUT_SO_SYMBOLS/egl:$OUT_SO_SYMBOLS/soundfx:$OUT_VENDOR_SO_SYMBOLS:$OUT_VENDOR_SO_SYMBOLS/hw:$OUT_VENDOR_SO_SYMBOLS/egl"
-       echo >>"$OUT_ROOT/gdbclient.cmds" "source $ANDROID_BUILD_TOP/development/scripts/gdb/dalvik.gdb"
-       echo >>"$OUT_ROOT/gdbclient.cmds" "target remote $PORT"
-       # Enable special debugging for ART processes.
-       if [[ $EXE =~ (^|/)(app_process|dalvikvm)(|32|64)$ ]]; then
-          echo >> "$OUT_ROOT/gdbclient.cmds" "art-on"
-       fi
-       echo >>"$OUT_ROOT/gdbclient.cmds" ""
-
-       local WHICH_GDB=
-       # 64-bit exe found
-       if [ "$USE64BIT" != "" ] ; then
-           WHICH_GDB=$ANDROID_TOOLCHAIN/$GDB64
-       # 32-bit exe / 32-bit platform
-       elif [ "$(get_build_var TARGET_2ND_ARCH)" = "" ]; then
-           WHICH_GDB=$ANDROID_TOOLCHAIN/$GDB
-       # 32-bit exe / 64-bit platform
-       else
-           WHICH_GDB=$ANDROID_TOOLCHAIN_2ND_ARCH/$GDB
-       fi
-
-       gdbwrapper $WHICH_GDB "$OUT_ROOT/gdbclient.cmds" "$OUT_EXE_SYMBOLS/$EXE"
-  else
-       echo "Unable to determine build system output dir."
-   fi
-
-}
-
 function dddclient()
 {
    local OUT_ROOT=$(get_abs_build_var PRODUCT_OUT)
@@ -1568,7 +1319,6 @@ function dddclient()
        echo "Unable to determine build system output dir."
    fi
 }
-
 
 case `uname -s` in
     Darwin)
@@ -2149,32 +1899,11 @@ function dopush()
     # Copy: <file>
     LOC="$LOC $(cat $OUT/.log | sed -r 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g' | grep '^Copy: ' | cut -d ':' -f 2)"
 
-    # If any files are going to /data, push an octal file permissions reader to device
-    if [ -n "$(echo $LOC | egrep '(^|\s)/data')" ]; then
-        CHKPERM="/data/local/tmp/chkfileperm.sh"
-(
-cat <<'EOF'
-#!/system/xbin/sh
-FILE=$@
-if [ -e $FILE ]; then
-    ls -l $FILE | awk '{k=0;for(i=0;i<=8;i++)k+=((substr($1,i+2,1)~/[rwx]/)*2^(8-i));if(k)printf("%0o ",k);print}' | cut -d ' ' -f1
-fi
-EOF
-) > $OUT/.chkfileperm.sh
-        echo "Pushing file permissions checker to device"
-        adb push $OUT/.chkfileperm.sh $CHKPERM
-        adb shell chmod 755 $CHKPERM
-        rm -f $OUT/.chkfileperm.sh
-    fi
-
     stop_n_start=false
-    for FILE in $(echo $LOC | xargs -n1 -i echo '{}'); do
-        # Make sure file is in $OUT/system or $OUT/data
+    for FILE in $LOC; do
+        # Make sure file is in $OUT/system
         case $FILE in
             $OUT/system/*)
-                TARGET=$(echo $FILE | sed "s#$OUT##")
-            ;;
-            $OUT/data/*)
                 # Get target file name (i.e. /system/bin/adb)
                 TARGET=$(echo $FILE | sed "s#$OUT##")
             ;;
@@ -2182,28 +1911,7 @@ EOF
         esac
 
         case $TARGET in
-            /data/*)
-                # fs_config only sets permissions and se labels for files pushed to /system
-                if [ -n "$CHKPERM" ]; then
-                    OLDPERM=$(adb shell $CHKPERM $TARGET)
-                    OLDPERM=$(echo $OLDPERM | tr -d '\r' | tr -d '\n')
-                    OLDOWN=$(adb shell ls -al $TARGET | awk '{print $2}')
-                    OLDGRP=$(adb shell ls -al $TARGET | awk '{print $3}')
-                fi
-                echo "Pushing: $TARGET"
-                adb push $FILE $TARGET
-                if [ -n "$OLDPERM" ]; then
-                    echo "Setting file permissions: $OLDPERM, $OLDOWN":"$OLDGRP"
-                    adb shell chown "$OLDOWN":"$OLDGRP" $TARGET
-                    adb shell chmod "$OLDPERM" $TARGET
-                else
-                    echo "$TARGET did not exist previously, you should set file permissions manually"
-                fi
-                adb shell restorecon "$TARGET"
-            ;;
-
-            # | works here because there's only one wildcard to match
-            {/system/}priv-app/SystemUI/SystemUI.apk|framework/*)
+            /system/priv-app/SystemUI/SystemUI.apk|/system/framework/*)
                 # Only need to stop services once
                 if ! $stop_n_start; then
                     adb shell stop
@@ -2218,9 +1926,6 @@ EOF
             ;;
         esac
     done
-    if [ -n "$CHKPERM" ]; then
-        adb shell rm $CHKPERM
-    fi
     if $stop_n_start; then
         adb shell start
     fi
@@ -2363,7 +2068,6 @@ function make()
     mk_timer $(get_make_command) "$@"
 }
 
-
 if [ "x$SHELL" != "x/bin/bash" ]; then
     case `ps -o command -p $$` in
         *bash*)
@@ -2384,22 +2088,6 @@ do
     . $f
 done
 unset f
-
-#addcompletions
-
-#check_bash_version && {
-#    dirs="sdk/bash_completion vendor/hazy/bash_completion"
-#    for dir in $dirs; do
-#    if [ -d ${dir} ]; then
-#        for f in `/bin/ls ${dir}/[a-z]*.bash 2> /dev/null`; do
-#            echo "including $f"
-#            . $f
-#        done
-#    fi
-#    done
-#}
-
-#export ANDROID_BUILD_TOP=$(gettop)
 
 # Add completions
 check_bash_version && {
