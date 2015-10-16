@@ -21,7 +21,7 @@
 # core_tiny.mk in addition to core_minimal.mk.
 
 PRODUCT_PACKAGES += \
-    BasicDreams \
+    #BasicDreams \
     Browser \
     Calculator \
     CalendarProvider \
