@@ -321,12 +321,6 @@ else # LOCAL_SDK_RES_VERSION
 framework_res_package_export := \
     $(call intermediates-dir-for,APPS,framework-res,,COMMON)/package-export.apk
 
-# Avoid possible circular dependency with our platform-res
-ifneq ($(LOCAL_IGNORE_SUBDIR), true)
-cm_plat_res_package_export := \
-    $(call intermediates-dir-for,APPS,org.cyanogenmod.platform-res,,COMMON)/package-export.apk
-endif # LOCAL_IGNORE_SUBDIR
-
 # We can't depend directly on the export.apk file; it won't get its
 # PRIVATE_ vars set up correctly if we do.  Instead, depend on the
 # corresponding R.stamp file, which lists the export.apk as a dependency.
