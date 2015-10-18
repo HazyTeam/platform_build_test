@@ -327,11 +327,6 @@ framework_res_package_export := \
 framework_res_package_export_deps := \
     $(dir $(framework_res_package_export))src/R.stamp
 
-ifneq ($(LOCAL_IGNORE_SUBDIR), true)
-cm_plat_res_package_export_deps := \
-    $(dir $(cm_plat_res_package_export))src/R.stamp
-endif # LOCAL_IGNORE_SUBDIR
-
 endif # LOCAL_SDK_RES_VERSION
 all_library_res_package_exports := \
     $(framework_res_package_export) \
@@ -342,13 +337,6 @@ all_library_res_package_export_deps := \
     $(framework_res_package_export_deps) \
     $(foreach lib,$(LOCAL_RES_LIBRARIES),\
         $(call intermediates-dir-for,APPS,$(lib),,COMMON)/src/R.stamp)
-
-ifneq ($(LOCAL_IGNORE_SUBDIR), true)
-all_library_res_package_exports += \
-    $(cm_plat_res_package_export)
-all_library_res_package_export_deps += \
-    $(cm_plat_res_package_export_deps)
-endif # LOCAL_IGNORE_SUBDIR
 
 $(resource_export_package) $(R_file_stamp) $(LOCAL_BUILT_MODULE): $(all_library_res_package_export_deps)
 $(LOCAL_INTERMEDIATE_TARGETS): \
