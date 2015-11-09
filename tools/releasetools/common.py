@@ -29,11 +29,6 @@ import threading
 import time
 import zipfile
 
-try:
-  from backports import lzma;
-except ImportError:
-  lzma = None
-
 import blockimgdiff
 import rangelib
 
@@ -1224,7 +1219,6 @@ class BlockDifference(object):
     self.src = src
     self.partition = partition
     self.check_first_block = check_first_block
-    self.use_lzma = use_lzma
 
     # Due to http://b/20939131, check_first_block is disabled temporarily.
     assert not self.check_first_block
@@ -1238,7 +1232,7 @@ class BlockDifference(object):
     self.version = version
 
     b = blockimgdiff.BlockImageDiff(tgt, src, threads=OPTIONS.worker_threads,
-                                    version=self.version, use_lzma=use_lzma)
+                                    version=self.version)
     tmpdir = tempfile.mkdtemp()
     OPTIONS.tempfiles.append(tmpdir)
     self.path = os.path.join(tmpdir, partition)

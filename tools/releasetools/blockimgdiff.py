@@ -604,14 +604,7 @@ class BlockImageDiff(object):
     diff_q = []
     patch_num = 0
 
-    if lzma and self.use_lzma:
-        open_patch = lzma.open
-        new_file = ".new.dat.xz"
-    else:
-        open_patch = open
-        new_file = ".new.dat"
-
-    with open_patch(prefix + new_file, "wb") as new_f:
+    with open(prefix + new_file, "wb") as new_f:
       for xf in self.transfers:
         if xf.style == "zero":
           pass
