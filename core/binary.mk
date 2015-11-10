@@ -368,6 +368,7 @@ ifneq ($(LOCAL_NO_SYNTAX_CHECK),true)
 endif
 endif
 $(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_CXX := $(my_cxx)
+$(LOCAL_INTERMEDIATE_TARGETS): PRIVATE_CLANG := $(my_clang)
 
 # TODO: support a mix of standard extensions so that this isn't necessary
 LOCAL_CPP_EXTENSION := $(strip $(LOCAL_CPP_EXTENSION))
@@ -954,11 +955,6 @@ normal_objects := \
     $(addprefix $(TOPDIR)$(LOCAL_PATH)/,$(LOCAL_PREBUILT_OBJ_FILES))
 
 all_objects := $(normal_objects) $(gen_o_objects)
-
-## Allow a device's own headers to take precedence over global ones
-ifneq ($(TARGET_SPECIFIC_HEADER_PATH),)
-my_c_includes := $(TOPDIR)$(TARGET_SPECIFIC_HEADER_PATH) $(my_c_includes)
-endif
 
 my_c_includes += $(TOPDIR)$(LOCAL_PATH) $(intermediates) $(generated_sources_dir)
 

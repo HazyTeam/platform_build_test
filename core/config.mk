@@ -41,6 +41,7 @@ SRC_HEADERS := \
 	$(TOPDIR)system/media/audio/include \
 	$(TOPDIR)hardware/libhardware/include \
 	$(TOPDIR)hardware/libhardware_legacy/include \
+	$(TOPDIR)hardware/ril/include \
 	$(TOPDIR)libnativehelper/include \
 	$(TOPDIR)frameworks/native/include \
 	$(TOPDIR)frameworks/native/opengl/include \
@@ -160,11 +161,6 @@ include $(BUILD_SYSTEM)/envsetup.mk
 # See envsetup.mk for a description of SCAN_EXCLUDE_DIRS
 FIND_LEAVES_EXCLUDES := $(addprefix --prune=, $(OUT_DIR) $(SCAN_EXCLUDE_DIRS) .repo .git)
 
-# General entries for project pathmap.  Any entries listed here should
-# be device and hardware independent.
-$(call project-set-path-variant,recovery,RECOVERY_VARIANT,bootable/recovery)
-
--include vendor/extra/BoardConfigExtra.mk
 # The build system exposes several variables for where to find the kernel
 # headers:
 #   TARGET_DEVICE_KERNEL_HEADERS is automatically created for the current
@@ -540,12 +536,10 @@ else
   DEFAULT_SYSTEM_DEV_CERTIFICATE := build/target/product/security/testkey
 endif
 
-# Rules for QCOM targets
-include $(BUILD_SYSTEM)/qcom_target.mk
-
 # ###############################################################
 # Set up final options.
 # ###############################################################
+
 HOST_GLOBAL_CFLAGS += $(COMMON_GLOBAL_CFLAGS)
 HOST_RELEASE_CFLAGS += $(COMMON_RELEASE_CFLAGS)
 
@@ -562,8 +556,7 @@ HOST_GLOBAL_LD_DIRS += -L$(HOST_OUT_INTERMEDIATE_LIBRARIES)
 TARGET_GLOBAL_LD_DIRS += -L$(TARGET_OUT_INTERMEDIATE_LIBRARIES)
 
 HOST_PROJECT_INCLUDES:= $(SRC_HEADERS) $(SRC_HOST_HEADERS) $(HOST_OUT_HEADERS)
-TARGET_PROJECT_INCLUDES:= $(SRC_HEADERS) $(TOPDIR)$(call project-path-for,ril)/include \
-		$(TARGET_OUT_HEADERS) \
+TARGET_PROJECT_INCLUDES:= $(SRC_HEADERS) $(TARGET_OUT_HEADERS) \
 		$(TARGET_DEVICE_KERNEL_HEADERS) $(TARGET_BOARD_KERNEL_HEADERS) \
 		$(TARGET_PRODUCT_KERNEL_HEADERS)
 
@@ -578,13 +571,6 @@ HOST_GLOBAL_CPPFLAGS += $(HOST_RELEASE_CPPFLAGS)
 
 TARGET_GLOBAL_CFLAGS += $(TARGET_RELEASE_CFLAGS)
 TARGET_GLOBAL_CPPFLAGS += $(TARGET_RELEASE_CPPFLAGS)
-
-ifeq ($(TARGET_EXTRA_CPPFLAGS),)
-TARGET_EXTRA_CPPFLAGS := $(TARGET_EXTRA_CFLAGS)
-endif
-
-TARGET_GLOBAL_CFLAGS += $(TARGET_EXTRA_CFLAGS)
-TARGET_GLOBAL_CPPFLAGS += $(TARGET_EXTRA_CPPFLAGS)
 
 ifdef TARGET_2ND_ARCH
 $(TARGET_2ND_ARCH_VAR_PREFIX)TARGET_GLOBAL_CFLAGS += $(COMMON_GLOBAL_CFLAGS)
@@ -701,6 +687,9 @@ endif
 RSCOMPAT_32BIT_ONLY_API_LEVELS := 8 9 10 11 12 13 14 15 16 17 18 19 20
 RSCOMPAT_NO_USAGEIO_API_LEVELS := 8 9 10 11 12 13
 
+# Rules for QCOM targets
+include $(BUILD_SYSTEM)/qcom_target.mk
+
 # We might want to skip items listed in PRODUCT_COPY_FILES based on
 # various target flags. This is useful for replacing a binary module with one
 # built from source. This should be a list of destination files under $OUT
@@ -716,13 +705,6 @@ ifneq ($(CUSTOM_BUILD),)
 ## We need to be sure the global selinux policies are included
 ## last, to avoid accidental resetting by device configs
 $(eval include vendor/hazy/sepolicy/sepolicy.mk)
-
-# Include any vendor specific config.mk file
--include $(TOPDIR)vendor/*/build/core/config.mk
-
-# Include any vendor specific apicheck.mk file
--include $(TOPDIR)vendor/*/build/core/apicheck.mk
-
 endif
 
 include $(BUILD_SYSTEM)/dumpvar.mk

@@ -144,6 +144,7 @@ LOCAL_NO_CRT:=
 LOCAL_NO_LIBGCC:=
 LOCAL_PROPRIETARY_MODULE:=
 LOCAL_OEM_MODULE:=
+LOCAL_ODM_MODULE:=
 LOCAL_PRIVILEGED_MODULE:=
 LOCAL_MODULE_OWNER:=
 LOCAL_CTS_TEST_PACKAGE:=
@@ -291,9 +292,6 @@ LOCAL_MODULE_STEM_32:=
 LOCAL_MODULE_STEM_64:=
 LOCAL_CLANG_32:=
 LOCAL_CLANG_64:=
-
-# Include any vendor specific clear_vars.mk file
--include $(TOPDIR)vendor/*/build/core/clear_vars.mk
 
 # Trim MAKEFILE_LIST so that $(call my-dir) doesn't need to
 # iterate over thousands of entries every time.

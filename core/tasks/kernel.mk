@@ -1,4 +1,4 @@
-# Copyright (C) 2012 The HazyRom Project
+# Copyright (C) 2012 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ SELINUX_DEFCONFIG := $(TARGET_KERNEL_SELINUX_CONFIG)
 ## Internal variables
 KERNEL_OUT := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ
 KERNEL_CONFIG := $(KERNEL_OUT)/.config
+
 ARM_EABI_TOOLCHAIN := $(ANDROID_BUILD_TOP)/prebuilts/gcc/linux-x86/arm/arm-eabi-4.8/bin
 
 TARGET_KERNEL_ARCH := $(strip $(TARGET_KERNEL_ARCH))
@@ -145,19 +146,6 @@ else
     endif
 endif
 
-ifeq ($(BOARD_HAS_MTK_HARDWARE),true)
-  ifeq ($(BOARD_USES_MTK_KERNELBUILD),true)
-    include $(CLEAR_VARS)
-    $(shell rm -f $(TARGET_PREBUILT_INT_KERNEL))
-    FULL_KERNEL_BUILD := false
-    PROJECT_NAME := $(TARGET_KERNEL_CONFIG)
-$(TARGET_PREBUILT_INT_KERNEL):
-	cd $(TARGET_KERNEL_SOURCE) && env -i PATH=$(PATH) ./makeMtk -t -o=OUT_DIR=$(OUT_DIR),TARGET_BUILD_VARIANT=$(TARGET_BUILD_VARIANT) $(PROJECT_NAME) r k
-	-cd $(TARGET_KERNEL_SOURCE) && git clean -fd
-
-  endif
-endif
-
 ifeq ($(FULL_KERNEL_BUILD),true)
 
 KERNEL_HEADERS_INSTALL := $(KERNEL_OUT)/usr
@@ -208,7 +196,7 @@ define clean-module-folder
 endef
 
 ifeq ($(HOST_OS),darwin)
-  MAKE_FLAGS += C_INCLUDE_PATH=$(ANDROID_BUILD_TOP)/external/elfutils/src/libelf/
+  MAKE_FLAGS += C_INCLUDE_PATH=$(ANDROID_BUILD_TOP)/external/elfutils/0.153/libelf/
 endif
 
 ifeq ($(TARGET_KERNEL_MODULES),)

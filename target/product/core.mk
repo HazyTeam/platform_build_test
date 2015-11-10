@@ -21,8 +21,8 @@
 # core_tiny.mk in addition to core_minimal.mk.
 
 PRODUCT_PACKAGES += \
-    #BasicDreams \
     Browser \
+    BasicDreams \
     Calculator \
     CalendarProvider \
     CaptivePortalLogin \
@@ -41,7 +41,6 @@ PRODUCT_PACKAGES += \
     LatinIME \
     Launcher3 \
     ManagedProvisioning \
-    PicoTts \
     PacProcessor \
     libpac \
     PrintSpooler \

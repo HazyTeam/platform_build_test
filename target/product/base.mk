@@ -25,6 +25,7 @@ PRODUCT_PACKAGES += \
     android.policy \
     android.test.runner \
     app_process \
+    applypatch \
     blkid \
     bmgr \
     bugreport \
@@ -110,7 +111,6 @@ PRODUCT_PACKAGES += \
     run-as \
     schedtest \
     sdcard \
-    secdiscard \
     services \
     settings \
     sgdisk \
@@ -118,7 +118,6 @@ PRODUCT_PACKAGES += \
     svc \
     tc \
     telecom \
-    tm \
     vdc \
     vold \
     wm
