@@ -117,42 +117,22 @@ class EdifyGenerator(object):
 
   def AssertDevice(self, device):
     """Assert that the device identifier is the given string."""
-    cmd = ('assert(' +
-           ' || '.join(['getprop("ro.product.device") == "%s" || getprop("ro.build.product") == "%s"'
-                         % (i, i) for i in device.split(",")]) +
-           ' || abort("This package is for device: %s; ' +
-           'this device is " + getprop("ro.product.device") + ".");' +
-           ');') % device
+    cmd = ('getprop("ro.product.device") == "%s" || '
+           'abort("This package is for \\"%s\\" devices; '
+           'this is a \\"" + getprop("ro.product.device") + "\\".");') % (
+               device, device)
     self.script.append(cmd)
 
   def AssertSomeBootloader(self, *bootloaders):
-    """Assert that the bootloader version is one of *bootloaders."""
+    """Asert that the bootloader version is one of *bootloaders."""
     cmd = ("assert(" +
-           " || ".join(['getprop("ro.bootloader") == "%s"' % (b,)
+           " ||\0".join(['getprop("ro.bootloader") == "%s"' % (b,)
                          for b in bootloaders]) +
-           ' || abort("This package supports bootloader(s): ' +
-           ", ".join(["%s" % (b,) for b in bootloaders]) +
-           '; this device has bootloader " + getprop("ro.bootloader") + ".");' +
            ");")
     self.script.append(self.WordWrap(cmd))
 
-  def AssertSomeBaseband(self, *basebands):
-    """Assert that the baseband version is one of *basebands."""
-    cmd = ("assert(" +
-           " || ".join(['getprop("ro.baseband") == "%s"' % (b,)
-                         for b in basebands]) +
-           ' || abort("This package supports baseband(s): ' +
-           ", ".join(["%s" % (b,) for b in basebands]) +
-           '; this device has baseband " + getprop("ro.baseband") + ".");' +
-           ");")
-    self.script.append(self._WordWrap(cmd))
-
   def RunBackup(self, command):
     self.script.append(('run_program("/tmp/install/bin/backuptool.sh", "%s");' % command))
-
-  def ValidateSignatures(self, command):
-    # Exit code 124 == abort. run_program returns raw, so left-shift 8bit
-    self.script.append('run_program("/tmp/install/bin/otasigcheck.sh") != "31744" || abort("Can\'t install this package on top of incompatible data. Please try another package or run a factory reset");')
 
   def ShowProgress(self, frac, dur):
     """Update the progress bar, advancing it over 'frac' over the next

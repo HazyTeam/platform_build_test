@@ -40,9 +40,6 @@ OPTIONS = common.OPTIONS
 
 OPTIONS.add_missing = False
 OPTIONS.rebuild_recovery = False
-OPTIONS.replace_verity_public_key = False
-OPTIONS.replace_verity_private_key = False
-OPTIONS.verity_signer_path = None
 
 def AddSystem(output_zip, prefix="IMAGES/", recovery_img=None, boot_img=None):
   """Turn the contents of SYSTEM into a system image and store it in
@@ -96,29 +93,6 @@ def BuildVendor(input_dir, info_dict, block_list=None):
   """Build the (sparse) vendor image and return the name of a temp
   file containing it."""
   return CreateImage(input_dir, info_dict, "vendor", block_list=block_list)
-
-def AddOem(output_zip, prefix="IMAGES/"):
-  """Turn the contents of OEM into a oem image and store in it
-  output_zip."""
-
-  prebuilt_path = os.path.join(OPTIONS.input_tmp, prefix, "oem.img")
-  if os.path.exists(prebuilt_path):
-    print "oem.img already exists in %s, no need to rebuild..." % (prefix,)
-    return
-
-  block_list = common.MakeTempFile(prefix="oem-blocklist-", suffix=".map")
-  imgname = BuildOem(OPTIONS.input_tmp, OPTIONS.info_dict,
-                     block_list=block_list)
-  with open(imgname, "rb") as f:
-    common.ZipWriteStr(output_zip, prefix + "oem.img", f.read())
-  with open(block_list, "rb") as f:
-    common.ZipWriteStr(output_zip, prefix + "oem.map", f.read())
-
-
-def BuildOem(input_dir, info_dict, block_list=None):
-  """Build the (sparse) oem image and return the name of a temp
-  file containing it."""
-  return CreateImage(input_dir, info_dict, "oem", block_list=block_list)
 
 
 def CreateImage(input_dir, info_dict, what, block_list=None):
@@ -217,42 +191,6 @@ def AddUserdata(output_zip, prefix="IMAGES/"):
   os.rmdir(temp_dir)
 
 
-def AddUserdataExtra(output_zip):
-  """Create extra userdata image and store it in output_zip."""
-
-  image_props = build_image.ImagePropFromGlobalDict(OPTIONS.info_dict,
-                                                  "data_extra")
-  # If no userdataextra_size is provided for extfs, skip userdata_extra.img.
-  if (image_props.get("fs_type", "").startswith("ext") and
-      not image_props.get("partition_size")):
-    return
-
-  extra_name = image_props.get("partition_name", "extra")
-
-  print "creating userdata_%s.img..." % extra_name
-
-  # The name of the directory it is making an image out of matters to
-  # mkyaffs2image.  So we create a temp dir, and within it we create an
-  # empty dir named "data", and build the image from that.
-  temp_dir = tempfile.mkdtemp()
-  user_dir = os.path.join(temp_dir, "data")
-  os.mkdir(user_dir)
-  img = tempfile.NamedTemporaryFile()
-
-  fstab = OPTIONS.info_dict["fstab"]
-  if fstab:
-    image_props["fs_type" ] = fstab["/data"].fs_type
-  succ = build_image.BuildImage(user_dir, image_props, img.name)
-  assert succ, "build userdata_%s.img image failed" % extra_name
-
-  # Disable size check since this fetches original data partition size
-  #common.CheckSize(img.name, "userdata_extra.img", OPTIONS.info_dict)
-  output_zip.write(img.name, "userdata_%s.img" % extra_name)
-  img.close()
-  os.rmdir(user_dir)
-  os.rmdir(temp_dir)
-
-
 def AddCache(output_zip, prefix="IMAGES/"):
   """Create an empty cache image and store it in output_zip."""
 
@@ -305,12 +243,6 @@ def AddImagesToTargetFiles(filename):
   except KeyError:
     has_vendor = False
 
-  try:
-    input_zip.getinfo("OEM/")
-    has_oem = True
-  except KeyError:
-    has_oem = False
-
   OPTIONS.info_dict = common.LoadInfoDict(input_zip)
   if "selinux_fc" in OPTIONS.info_dict:
     OPTIONS.info_dict["selinux_fc"] = os.path.join(
@@ -358,39 +290,24 @@ def AddImagesToTargetFiles(filename):
     AddVendor(output_zip)
   banner("userdata")
   AddUserdata(output_zip)
-  banner("extrauserdata")
-  AddUserdataExtra(output_zip)
   banner("cache")
   AddCache(output_zip)
-  if has_oem:
-    banner("oem")
-    AddOem(output_zip)
-
 
   common.ZipClose(output_zip)
 
 def main(argv):
-  def option_handler(o, a):
+  def option_handler(o, _):
     if o in ("-a", "--add_missing"):
       OPTIONS.add_missing = True
     elif o in ("-r", "--rebuild_recovery",):
       OPTIONS.rebuild_recovery = True
-    elif o == "--replace_verity_private_key":
-      OPTIONS.replace_verity_private_key = (True, a)
-    elif o == "--replace_verity_public_key":
-      OPTIONS.replace_verity_public_key = (True, a)
-    elif o == "--verity_signer_path":
-      OPTIONS.verity_signer_path = a
     else:
       return False
     return True
 
   args = common.ParseOptions(
       argv, __doc__, extra_opts="ar",
-      extra_long_opts=["add_missing", "rebuild_recovery",
-                       "replace_verity_public_key=",
-                       "replace_verity_private_key=",
-                       "verity_signer_path="],
+      extra_long_opts=["add_missing", "rebuild_recovery"],
       extra_option_handler=option_handler)
 
 

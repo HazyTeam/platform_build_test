@@ -264,12 +264,8 @@ def BuildImage(in_dir, prop_dict, out_file, target_out=None):
     if "extfs_sparse_flag" in prop_dict:
       build_command.append(prop_dict["extfs_sparse_flag"])
       #run_fsck = True
-    if "is_userdataextra" in prop_dict:
-      build_command.extend([in_dir, out_file, fs_type,
-                           "data"])
-    else:
-      build_command.extend([in_dir, out_file, fs_type,
-                            prop_dict["mount_point"]])
+    build_command.extend([in_dir, out_file, fs_type,
+                          prop_dict["mount_point"]])
     build_command.append(prop_dict["partition_size"])
     if "journal_size" in prop_dict:
       build_command.extend(["-j", prop_dict["journal_size"]])
@@ -419,8 +415,7 @@ def ImagePropFromGlobalDict(glob_dict, mount_point):
       "skip_fsck",
       "verity",
       "verity_key",
-      "verity_signer_cmd",
-      "transparent_compression_method"
+      "verity_signer_cmd"
       )
   for p in common_props:
     copy_prop(p, p)
@@ -444,11 +439,6 @@ def ImagePropFromGlobalDict(glob_dict, mount_point):
     copy_prop("fs_type", "fs_type")
     copy_prop("userdata_fs_type", "fs_type")
     copy_prop("userdata_size", "partition_size")
-  elif mount_point == "data_extra":
-    copy_prop("fs_type", "fs_type")
-    copy_prop("userdataextra_size", "partition_size")
-    copy_prop("userdataextra_name", "partition_name")
-    d["is_userdataextra"] = True
   elif mount_point == "cache":
     copy_prop("cache_fs_type", "fs_type")
     copy_prop("cache_size", "partition_size")
@@ -485,10 +475,12 @@ def main(argv):
   if len(argv) != 4:
     print __doc__
     sys.exit(1)
+
   in_dir = argv[0]
   glob_dict_file = argv[1]
   out_file = argv[2]
   target_out = argv[3]
+
   glob_dict = LoadGlobalDict(glob_dict_file)
   if "mount_point" in glob_dict:
     # The caller knows the mount point and provides a dictionay needed by
@@ -510,10 +502,14 @@ def main(argv):
     else:
       print >> sys.stderr, "error: unknown image file name ", image_filename
       exit(1)
+
     image_properties = ImagePropFromGlobalDict(glob_dict, mount_point)
+
   if not BuildImage(in_dir, image_properties, out_file, target_out):
     print >> sys.stderr, "error: failed to build %s from %s" % (out_file,
                                                                 in_dir)
     exit(1)
+
+
 if __name__ == '__main__':
   main(sys.argv[1:])

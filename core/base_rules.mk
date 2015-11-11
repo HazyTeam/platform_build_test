@@ -117,6 +117,8 @@ ifeq ($(my_module_path),)
     partition_tag := _VENDOR
   else ifeq (true,$(LOCAL_OEM_MODULE))
     partition_tag := _OEM
+  else ifeq (true,$(LOCAL_ODM_MODULE))
+    partition_tag := _ODM
   else
     # The definition of should-install-to-system will be different depending
     # on which goal (e.g., sdk or just droid) is being built.
@@ -182,7 +184,7 @@ ifneq (true,$(LOCAL_UNINSTALLABLE_MODULE))
   # Apk and its attachments reside in its own subdir.
   ifeq ($(LOCAL_MODULE_CLASS),APPS)
   # framework-res.apk doesn't like the additional layer.
-  ifeq ($(filter true,$(LOCAL_NO_STANDARD_LIBRARIES) $(LOCAL_IGNORE_SUBDIR)),)
+  ifneq ($(LOCAL_NO_STANDARD_LIBRARIES),true)
     my_module_path := $(my_module_path)/$(LOCAL_MODULE)
   endif
   endif

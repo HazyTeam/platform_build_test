@@ -105,14 +105,10 @@ include $(BUILD_SYSTEM)/cleanbuild.mk
 # Bring in Qualcomm helper macros
 include $(BUILD_SYSTEM)/qcom_utils.mk
 
-# Bring in Mediatek helper macros too
-include $(BUILD_SYSTEM)/mtk_utils.mk
-
 # Include the google-specific config
 -include vendor/google/build/config.mk
 
 VERSION_CHECK_SEQUENCE_NUMBER := 5
-
 -include $(OUT_DIR)/versions_checked.mk
 ifneq ($(VERSION_CHECK_SEQUENCE_NUMBER),$(VERSIONS_CHECKED))
 
@@ -147,8 +143,8 @@ $(warning ************************************************************)
 $(error Directory names containing spaces not supported)
 endif
 
-java_version_str := $(shell unset _JAVA_OPTIONS JAVA_TOOL_OPTIONS && java -version 2>&1)
-javac_version_str := $(shell unset _JAVA_OPTIONS JAVA_TOOL_OPTIONS && javac -version 2>&1)
+java_version_str := $(shell unset _JAVA_OPTIONS && java -version 2>&1)
+javac_version_str := $(shell unset _JAVA_OPTIONS && javac -version 2>&1)
 
 # Check for the correct version of java, should be 1.7 by
 # default, and 1.8 if EXPERIMENTAL_USE_JAVA8 is set
@@ -319,17 +315,18 @@ endif
 
 user_variant := $(filter user userdebug,$(TARGET_BUILD_VARIANT))
 enable_target_debugging := true
+WITH_DEXPREOPT := false
 tags_to_install :=
 ifneq (,$(user_variant))
   # Target is secure in user builds.
-  ADDITIONAL_DEFAULT_PROPERTIES += ro.secure=1
+  ADDITIONAL_DEFAULT_PROPERTIES += ro.secure=0
 
   ifeq ($(user_variant),userdebug)
     # Pick up some extra useful tools
     tags_to_install += debug
   else
     # Disable debugging in plain user builds.
-    enable_target_debugging :=
+    enable_target_debugging := true
   endif
 
   # Turn on Dalvik preoptimization for user builds, but only if not
@@ -372,6 +369,7 @@ endif # !enable_target_debugging
 
 ifeq ($(TARGET_BUILD_VARIANT),eng)
 tags_to_install := debug eng
+WITH_DEXPREOPT := false
 ifneq ($(filter ro.setupwizard.mode=ENABLED, $(call collapse-pairs, $(ADDITIONAL_BUILD_PROPERTIES))),)
   # Don't require the setup wizard on eng builds
   ADDITIONAL_BUILD_PROPERTIES := $(filter-out ro.setupwizard.mode=%,\
@@ -709,15 +707,15 @@ else
 endif
 
 eng_MODULES := $(sort \
-        $(call module-installed-files, $(call module-names-for-tag-list,eng)) \
+        $(call get-tagged-modules,eng) \
         $(call module-installed-files, $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES_ENG)) \
     )
 debug_MODULES := $(sort \
-        $(call module-installed-files, $(call module-names-for-tag-list,debug)) \
+        $(call get-tagged-modules,debug) \
         $(call module-installed-files, $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES_DEBUG)) \
     )
 tests_MODULES := $(sort \
-        $(call module-installed-files, $(call module-names-for-tag-list,tests)) \
+        $(call get-tagged-modules,tests) \
         $(call module-installed-files, $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES_TESTS)) \
     )
 

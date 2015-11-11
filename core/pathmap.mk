@@ -41,6 +41,7 @@ pathmap_INCL := \
     libstdc++:bionic/libstdc++/include \
     mkbootimg:system/core/mkbootimg \
     opengl-tests-includes:frameworks/native/opengl/tests/include \
+    recovery:bootable/recovery \
     system-core:system/core/include \
     audio:system/media/audio/include \
     audio-effects:system/media/audio_effects/include \
@@ -119,7 +120,6 @@ FRAMEWORKS_BASE_SUBDIRS := \
 	    wifi \
 	    keystore \
 	    rs \
-	    security-bridge \
 	 )
 
 #
