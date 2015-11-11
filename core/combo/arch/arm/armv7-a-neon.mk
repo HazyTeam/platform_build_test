@@ -39,10 +39,6 @@ else
 endif
 endif
 endif
-<<<<<<< HEAD
-endif
-=======
->>>>>>> 88192d5859174b8e0b0b970da5c39196864b5db6
 
 arch_variant_cflags += \
     -mfloat-abi=softfp \
