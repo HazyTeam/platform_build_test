@@ -1632,17 +1632,6 @@ do
 done
 unset f
 
-# Add completions
-check_bash_version && {
-    dirs="sdk/bash_completion vendor/hazy/bash_completion"
-    for dir in $dirs; do
-    if [ -d ${dir} ]; then
-        for f in `/bin/ls ${dir}/[a-z]*.bash 2> /dev/null`; do
-            echo "including $f"
-            . $f
-        done
-    fi
-    done
-}
+addcompletions
 
 export ANDROID_BUILD_TOP=$(gettop)
