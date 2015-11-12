@@ -41,7 +41,7 @@ SRC_HEADERS := \
 	$(TOPDIR)system/media/audio/include \
 	$(TOPDIR)hardware/libhardware/include \
 	$(TOPDIR)hardware/libhardware_legacy/include \
-	#$(TOPDIR)hardware/ril/include \
+	$(TOPDIR)hardware/samsung/ril/include \
 	$(TOPDIR)libnativehelper/include \
 	$(TOPDIR)frameworks/native/include \
 	$(TOPDIR)frameworks/native/opengl/include \

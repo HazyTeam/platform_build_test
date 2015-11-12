@@ -181,7 +181,7 @@ include $(BUILD_SYSTEM)/device.mk
 
 # A CUSTOM build needs only the CUSTOM product makefiles.
 ifneq ($(CUSTOM_BUILD),)
-  all_product_configs := $(shell ls device/*/$(CUSTOM_BUILD)/hazy_$(CUSTOM_BUILD).mk)
+  all_product_configs := $(shell ls device/*/$(CUSTOM_BUILD)/$(TARGET_PRODUCT).mk)
 else
   ifneq ($(strip $(TARGET_BUILD_APPS)),)
   # An unbundled app build needs only the core product makefiles.
