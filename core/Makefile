@@ -273,17 +273,17 @@ endif
 # vendor build.prop
 #
 # For verifying that the vendor build is what we thing it is
-ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
-INSTALLED_VENDOR_BUILD_PROP_TARGET := $(TARGET_OUT_VENDOR)/build.prop
-ALL_DEFAULT_INSTALLED_MODULES += $(INSTALLED_VENDOR_BUILD_PROP_TARGET)
-$(INSTALLED_VENDOR_BUILD_PROP_TARGET): $(INSTALLED_BUILD_PROP_TARGET)
-	@echo Target vendor buildinfo: $@
-	@mkdir -p $(dir $@)
-	$(hide) echo > $@
-	$(hide) echo ro.vendor.build.date=`date`>>$@
-	$(hide) echo ro.vendor.build.date.utc=`date +%s`>>$@
-	$(hide) echo ro.vendor.build.fingerprint="$(BUILD_FINGERPRINT)">>$@
-endif
+#ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
+#INSTALLED_VENDOR_BUILD_PROP_TARGET := $(TARGET_OUT_VENDOR)/build.prop
+#ALL_DEFAULT_INSTALLED_MODULES += $(INSTALLED_VENDOR_BUILD_PROP_TARGET)
+#$(INSTALLED_VENDOR_BUILD_PROP_TARGET): $(INSTALLED_BUILD_PROP_TARGET)
+#	@echo Target vendor buildinfo: $@
+#	@mkdir -p $(dir $@)
+#	$(hide) echo > $@
+#	$(hide) echo ro.vendor.build.date=`date`>>$@
+#	$(hide) echo ro.vendor.build.date.utc=`date +%s`>>$@
+#	$(hide) echo ro.vendor.build.fingerprint="$(BUILD_FINGERPRINT)">>$@
+#endif
 
 # ----------------------------------------------------------------
 
@@ -1004,6 +1004,18 @@ $(hide) ln -sf /vendor $(TARGET_OUT)/vendor
 endef
 else
 define create-system-vendor-symlink
+endef
+endif
+
+# Only Create symlink /system/vendor to /vendor if necessary.
+ifdef BOARD_NEEDS_VENDORIMAGE_SYMLINK
+define create-system-vendor-symlink
+$(hide) if [ -d $(TARGET_OUT)/vendor ] && [ ! -h $(TARGET_OUT)/vendor ]; then \
+  echo 'Non-symlink $(TARGET_OUT)/vendor detected!' 1>&2; \
+  echo 'You cannot install files to $(TARGET_OUT)/vendor while building a separate vendor.img!' 1>&2; \
+  exit 1; \
+fi
+$(hide) ln -sf /vendor $(TARGET_OUT)/vendor
 endef
 endif
 
